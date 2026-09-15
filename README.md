@@ -1,4 +1,4 @@
-# Welcome to your Lovable project
+# Welcome to AI POWERED PLATFORM FOR DIGITAL TWIN ENTERPRISE
 
 This project was built with [Lovable](https://lovable.dev).
 
