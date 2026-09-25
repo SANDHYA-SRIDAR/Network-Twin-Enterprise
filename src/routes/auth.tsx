@@ -24,27 +24,41 @@ function AuthPage() {
   const [message, setMessage] = useState("");
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); setBusy(true); setMessage("");
-    const form = new FormData(event.currentTarget); const email = String(form.get("email")); const password = String(form.get("password"));
-    const result = mode === "register"
-      ? await supabase.auth.signUp({ email, password, options: { data: { display_name: String(form.get("name")) }, emailRedirectTo: window.location.origin } })
-      : await supabase.auth.signInWithPassword({ email, password });
-    setBusy(false);
-    if (result.error) return setMessage(result.error.message);
-    if (mode === "register" && !result.data.session) return setMessage("Check your inbox to confirm your account.");
-    void navigate({ to: "/topology", replace: true });
+    try {
+      const form = new FormData(event.currentTarget); const email = String(form.get("email")); const password = String(form.get("password"));
+      const result = mode === "register"
+        ? await supabase.auth.signUp({ email, password, options: { data: { display_name: String(form.get("name")) }, emailRedirectTo: window.location.origin } })
+        : await supabase.auth.signInWithPassword({ email, password });
+      setBusy(false);
+      if (result.error) return setMessage(result.error.message);
+      if (mode === "register" && !result.data.session) return setMessage("Check your inbox to confirm your account.");
+      void navigate({ to: "/topology", replace: true });
+    } catch (err: any) {
+      setMessage(err.message || "An unexpected error occurred");
+      setBusy(false);
+    }
   };
   const google = async () => {
-    setBusy(true);
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo: window.location.origin, queryParams: { prompt: "select_account" } },
-    });
-    if (error) { setMessage(error.message); setBusy(false); }
+    try {
+      setBusy(true);
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: { redirectTo: window.location.origin, queryParams: { prompt: "select_account" } },
+      });
+      if (error) { setMessage(error.message); setBusy(false); }
+    } catch (err: any) {
+      setMessage(err.message || "An unexpected error occurred");
+      setBusy(false);
+    }
   };
   const forgot = async () => {
     const email = window.prompt("Enter your account email"); if (!email) return;
-    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/reset-password` });
-    setMessage(error?.message ?? "Password reset instructions sent.");
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/reset-password` });
+      setMessage(error?.message ?? "Password reset instructions sent.");
+    } catch (err: any) {
+      setMessage(err.message || "An unexpected error occurred");
+    }
   };
   return <main className="grid min-h-screen bg-background lg:grid-cols-[1.1fr_.9fr]">
     <section className="relative hidden overflow-hidden border-r bg-primary p-12 text-primary-foreground lg:flex lg:flex-col lg:justify-between">
