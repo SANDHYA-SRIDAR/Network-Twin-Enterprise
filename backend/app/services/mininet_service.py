@@ -34,6 +34,11 @@ class MininetService:
                 status="active"
             )
         ]
+        return MininetTelemetry(
+            timestamp=datetime.utcnow().isoformat(),
+            nodes=nodes,
+            links=links,
+        )
         
     @staticmethod
     def get_real_telemetry() -> MininetTelemetry:

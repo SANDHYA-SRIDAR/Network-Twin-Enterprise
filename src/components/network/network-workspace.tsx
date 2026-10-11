@@ -6,9 +6,9 @@ import {
   type Connection, type Edge, type EdgeChange, type EdgeProps, type Node, type NodeChange,
 } from "@xyflow/react";
 import {
-  AlertTriangle, Antenna, Bot, ChevronRight, CloudCog, Cpu, HardDrive,
+  AlertTriangle, Antenna, Bot, ChevronRight, CloudCog, Cpu, Gauge, HardDrive,
   Cable, Maximize2, Minimize2, Monitor, Network, Redo2, Router, Save, Server,
-  Undo2, Waypoints, X,
+  Trash2, Undo2, Waypoints, X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { Link } from "@tanstack/react-router";
@@ -38,6 +38,8 @@ type CableData = { cableType: CableType; highlighted?: boolean };
 type CableEdge = Edge<CableData, "cable">;
 type Snapshot = { nodes: DeviceNode[]; edges: CableEdge[] };
 type ChatEntry = { id: string; role: "user" | "assistant"; text: string };
+type PanelMode = "closed" | "open" | "full";
+type VmStatus = { connected: boolean; vm_status: string; mininet_status: string; simulation_status: string; message: string };
 
 const emptyConfig = (): DeviceConfig => ({ ipAddress: "", subnetMask: "255.255.255.0", defaultGateway: "", interfacePorts: "GigabitEthernet0/0, GigabitEthernet0/1" });
 const catalog: Array<{ model: DeviceModel; type: BaseDeviceType; label: string; subtitle: string; icon: typeof Router }> = [
@@ -101,7 +103,8 @@ function WorkspaceInner() {
   const [edges, setEdges, onEdgesChangeBase] = useEdgesState<CableEdge>([]);
   const [history, setHistory] = useState<Snapshot[]>([]); const [future, setFuture] = useState<Snapshot[]>([]);
   const [userId, setUserId] = useState(""); const [loading, setLoading] = useState(true); const [sync, setSync] = useState<"saved" | "saving" | "error">("saved");
-  const [panel, setPanel] = useState<"open" | "min" | "full">("open"); const [panelWidth, setPanelWidth] = useState(360);
+  const [assistantPanel, setAssistantPanel] = useState<PanelMode>("open"); const [telemetryPanel, setTelemetryPanel] = useState<PanelMode>("open");
+  const [assistantWidth, setAssistantWidth] = useState(360); const [telemetryWidth, setTelemetryWidth] = useState(280);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null); const [selectedCable, setSelectedCable] = useState<CableType>("straight-through");
   const [messages, setMessages] = useState<ChatEntry[]>(initialChat); const [thinking, setThinking] = useState(false);
@@ -112,6 +115,9 @@ function WorkspaceInner() {
   const syncQueue = useRef<Promise<void>>(Promise.resolve());
   // Telemetry state for Mininet mock data
   const [telemetry, setTelemetry] = useState<any>(null);
+  useEffect(() => { try { const stored = JSON.parse(localStorage.getItem("nettransform-panel-preferences") ?? "null") as { assistantPanel?: PanelMode; telemetryPanel?: PanelMode; assistantWidth?: number; telemetryWidth?: number } | null; if (stored?.assistantPanel === "closed" || stored?.assistantPanel === "open") setAssistantPanel(stored.assistantPanel); if (stored?.telemetryPanel === "closed" || stored?.telemetryPanel === "open") setTelemetryPanel(stored.telemetryPanel); if (typeof stored?.assistantWidth === "number") setAssistantWidth(Math.min(580, Math.max(320, stored.assistantWidth))); if (typeof stored?.telemetryWidth === "number") setTelemetryWidth(Math.min(420, Math.max(240, stored.telemetryWidth))); } catch { /* Ignore invalid local panel preferences. */ } }, []);
+  useEffect(() => { localStorage.setItem("nettransform-panel-preferences", JSON.stringify({ assistantPanel, telemetryPanel, assistantWidth, telemetryWidth })); }, [assistantPanel, telemetryPanel, assistantWidth, telemetryWidth]);
+  const telemetrySummary = useMemo(() => { const nodeTelemetry = Array.isArray(telemetry?.nodes) ? telemetry.nodes : []; const linkTelemetry = Array.isArray(telemetry?.links) ? telemetry.links : []; const average = (values: number[]) => values.length ? values.reduce((total, value) => total + value, 0) / values.length : 0; return { cpu: average(nodeTelemetry.map((node: { cpu_usage_pct: number }) => node.cpu_usage_pct)), latency: average(linkTelemetry.map((link: { latency_ms: number }) => link.latency_ms)), throughput: average(linkTelemetry.map((link: { throughput_mbps: number }) => link.throughput_mbps)) }; }, [telemetry]);
 
   const snapshot = useCallback(() => ({ nodes: structuredClone(nodesRef.current), edges: structuredClone(edgesRef.current) }), []);
   const record = useCallback(() => { setHistory(h => [...h.slice(-39), snapshot()]); setFuture([]); }, [snapshot]);
@@ -169,7 +175,7 @@ function WorkspaceInner() {
     let active = true;
     void (async () => {
       const { data: auth } = await supabase.auth.getUser(); if (!auth.user || !active) return; setUserId(auth.user.id);
-      const [{ data: rows }, { data: links }, { data: chats }] = await Promise.all([supabase.from("network_nodes").select("*").order("created_at"), supabase.from("network_connections").select("*").order("created_at"), supabase.from("chat_messages").select("*").order("sequence")]);
+      const [{ data: rows }, { data: links }, { data: chats }] = await Promise.all([supabase.from("network_nodes").select("*").order("created_at"), supabase.from("network_connections").select("*").order("created_at"), supabase.from("chat_messages").select("*").eq("user_id", auth.user.id).order("sequence")]);
       if (!active) return; setNodes((rows ?? []).map(mapNode)); setEdges((links ?? []).map(mapEdge));
       if (chats?.length) setMessages(chats.map(r => ({ id: r.id, role: r.role as ChatEntry["role"], text: Array.isArray(r.parts) ? String((r.parts[0] as { text?: string })?.text ?? "") : "" })));
       const pendingUndo = localStorage.getItem(`nexustwin-recommendation-undo-${auth.user.id}`);
@@ -224,16 +230,17 @@ function WorkspaceInner() {
   const warning = Boolean(duplicateIps.size || (isolatedCount && nodes.length > 1) || (unconfiguredCount && nodes.length));
 
   const send = async ({ text }: { text: string }) => { const value = text.trim(); if (!value || !userId) return; const userMessage = { id: generateUUID(), role: "user" as const, text: value }; setMessages(m => [...m, userMessage]); setThinking(true); await supabase.from("chat_messages").insert({ id: userMessage.id, user_id: userId, role: "user", parts: [{ type: "text", text: value }] }); let response = `I’m analyzing **${nodes.length} devices** across **${edges.length} links**.`; if (duplicateIps.size) response += ` I found duplicate addressing on **${[...duplicateIps].join(", ")}**. Assign a unique host address to each device before testing reachability.`; else if (isolatedCount) response += ` **${isolatedCount} device${isolatedCount > 1 ? "s are" : " is"} isolated**. Connect each one to an access or distribution device.`; else if (unconfiguredCount) response += ` **${unconfiguredCount} device${unconfiguredCount > 1 ? "s have" : " has"} no IP address**. Use the device inspector or implement an auto-addressed recommendation.`; else response += " Addressing is unique and every device has a link. The current layout is ready for gateway and failover validation."; const assistant = { id: generateUUID(), role: "assistant" as const, text: response }; setTimeout(() => { if (!mountedRef.current) return; setMessages(m => [...m, assistant]); setThinking(false); void supabase.from("chat_messages").insert({ id: assistant.id, user_id: userId, role: "assistant", parts: [{ type: "text", text: response }] }); }, 500); };
-  const [vmConnected, setVmConnected] = useState<boolean | null>(null);
+  const deleteChatHistory = async () => { if (!userId || !window.confirm("Delete your AI assistant chat history? This will not delete topology or simulation data.")) return; const { error } = await supabase.from("chat_messages").delete().eq("user_id", userId); if (error) { toast.error("Chat history could not be deleted"); return; } setMessages(initialChat); toast.success("Chat history deleted"); };
+  const [vmStatus, setVmStatus] = useState<VmStatus | null>(null);
 
   // Fetch VM connection status
   const fetchVmStatus = async () => {
     try {
       const res = await fetch(`${API_URL}/api/deploy/status`);
       const data = await res.json();
-      setVmConnected(data.connected);
+      setVmStatus(data);
     } catch {
-      setVmConnected(false);
+      setVmStatus({ connected: false, vm_status: "Unreachable", mininet_status: "Unknown", simulation_status: "Offline", message: "The backend status endpoint could not be reached." });
     }
   };
 
@@ -253,25 +260,20 @@ function WorkspaceInner() {
     }
   };
 
-  const panelClass = panel === "full" ? "absolute inset-3 z-50" : panel === "min" ? "w-14" : "w-[var(--panel-width)] max-w-[45vw]";
+  useEffect(() => {
+    const toggleAssistant = () => setAssistantPanel(current => current === "closed" ? "open" : "closed");
+    const toggleTelemetry = () => setTelemetryPanel(current => current === "closed" ? "open" : "closed");
+    const deploy = () => void handleDeploy();
+    window.addEventListener("nettransform:toggle-assistant", toggleAssistant);
+    window.addEventListener("nettransform:toggle-telemetry", toggleTelemetry);
+    window.addEventListener("nettransform:deploy", deploy);
+    return () => { window.removeEventListener("nettransform:toggle-assistant", toggleAssistant); window.removeEventListener("nettransform:toggle-telemetry", toggleTelemetry); window.removeEventListener("nettransform:deploy", deploy); };
+  }, [assistantPanel, telemetryPanel, nodes, edges]);
+  useEffect(() => { window.dispatchEvent(new CustomEvent("nettransform:panel-state", { detail: { assistantOpen: assistantPanel !== "closed", telemetryOpen: telemetryPanel !== "closed" } })); }, [assistantPanel, telemetryPanel]);
+  useEffect(() => { if (vmStatus) window.dispatchEvent(new CustomEvent("nettransform:vm-status", { detail: vmStatus })); }, [vmStatus]);
 
   return (
     <main className="relative flex min-h-0 flex-1 overflow-hidden">
-      {/* Header with Deploy button and VM status */}
-      <div className="flex h-14 items-center justify-between border-b px-3">
-        {/* Existing AI assistant elements placeholder */}
-        {/* Deploy button */}
-        <Button variant="ghost" size="icon" onClick={handleDeploy} aria-label="Deploy topology">
-          <CloudCog className="size-4" />
-        </Button>
-        {/* VM connection status */}
-        {vmConnected !== null && (
-          <span className={cn("ml-2 text-xs", vmConnected ? "text-success" : "text-destructive")}>
-            {vmConnected ? "VM Connected" : "VM Offline"}
-          </span>
-        )}
-      </div>
-
       <aside className="z-20 w-14 shrink-0 border-r bg-card p-2 md:w-60 md:p-4">
         <div className="mb-5 hidden md:block">
           <p className="font-mono text-[10px] uppercase text-muted-foreground">Cisco device drawer</p>
@@ -316,98 +318,38 @@ function WorkspaceInner() {
         {loading ? <div className="grid h-full place-items-center text-sm text-muted-foreground">Loading synchronized topology…</div> : <ReactFlow nodes={nodes} edges={edges} nodeTypes={{ device: DeviceNodeCard }} edgeTypes={{ cable: CableEdgeView }} onNodesChange={onNodesChange} onNodeDragStart={record} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeClick={(_, node) => { setSelectedNodeId(node.id); setSelectedEdgeId(null); }} onEdgeClick={(_, edge) => { setSelectedEdgeId(edge.id); setSelectedNodeId(null); setSelectedCable(edge.data?.cableType ?? "straight-through"); }} onPaneClick={() => { setSelectedNodeId(null); setSelectedEdgeId(null); }} onDrop={onDrop} onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }} fitView deleteKeyCode={["Backspace", "Delete"]} colorMode="system" defaultEdgeOptions={{ type: "cable" }}><Background variant={BackgroundVariant.Dots} gap={22} size={1} color="var(--canvas-dot)" /><Controls position="bottom-left" /><MiniMap position="bottom-right" nodeColor="var(--primary)" maskColor="color-mix(in oklch, var(--canvas) 75%, transparent)" /></ReactFlow>}
         {selectedNode && <aside className="absolute inset-y-3 right-3 z-40 flex w-[min(22rem,calc(100%-1.5rem))] flex-col border bg-card shadow-2xl"><div className="flex h-14 items-center justify-between border-b px-4"><div><p className="font-mono text-[9px] uppercase text-primary">Node Properties</p><h2 className="text-sm font-semibold">{selectedNode.data.model.toUpperCase()}</h2></div><Button variant="ghost" size="icon" onClick={() => setSelectedNodeId(null)} aria-label="Close device properties"><X /></Button></div><div className="border-b bg-muted/40 px-4 py-3"><div className="flex items-center gap-2 text-xs"><span className="size-2 rounded-full bg-success" /> Interface ready</div><p className="mt-1 text-[10px] text-muted-foreground">Static IPv4 and port configuration</p></div><div className="flex-1 space-y-5 overflow-y-auto p-4">{([['label', 'Device Name'], ['ipAddress', 'IP Address'], ['subnetMask', 'Subnet Mask'], ['defaultGateway', 'Default Gateway'], ['interfacePorts', 'Interface Ports']] as const).map(([field, label]) => { const value = field === "label" ? selectedNode.data.label : selectedNode.data.config[field]; const invalid = field !== "label" && field !== "interfacePorts" && Boolean(value) && !ipv4Pattern.test(value); return <div className="space-y-2" key={field}><Label htmlFor={`device-${field}`}>{label}</Label><Input id={`device-${field}`} value={value} onChange={e => updateSelected(field, e.target.value)} onBlur={commitSelected} className={cn("font-mono", invalid && "border-destructive focus-visible:ring-destructive")} placeholder={field === "label" ? "Device hostname" : field === "subnetMask" ? "255.255.255.0" : field === "interfacePorts" ? "Gi0/0, Gi0/1, Fa0/1" : "192.168.1.10"} />{invalid && <p className="text-xs text-destructive">Enter a valid IPv4 address.</p>}</div>; })}<div className="border p-3 text-xs text-muted-foreground"><div className="flex justify-between"><span>Model</span><span className="font-mono text-foreground">{selectedNode.data.model}</span></div><div className="mt-2 flex justify-between"><span>Links</span><span className="font-mono text-foreground">{edges.filter(edge => edge.source === selectedNode.id || edge.target === selectedNode.id).length}</span></div></div></div><div className="border-t p-3"><Button className="w-full" onClick={() => { commitSelected(); toast.success("Device configuration saved"); }}><Save /> Save Configuration</Button></div></aside>}
       </section>
-      <aside style={{ "--panel-width": `${panelWidth}px` } as React.CSSProperties} className={cn(panelClass, "glass-panel relative z-30 shrink-0 flex-col border-l transition-[width] duration-200", panel === "full" ? "flex" : "hidden sm:flex")}>
-        {panel !== "min" && <div onMouseDown={e => { const startX = e.clientX, startW = panelWidth; const move = (m: MouseEvent) => setPanelWidth(Math.min(580, Math.max(320, startW + startX - m.clientX))); const up = () => { window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); }; window.addEventListener("mousemove", move); window.addEventListener("mouseup", up); }} className="absolute -left-1 top-0 z-50 h-full w-2 cursor-col-resize" />}
-
-
-
-
-  }, []);
-
-        const [vmConnected, setVmConnected] = useState<boolean | null>(null);
-
-  // Fetch VM connection status
-  const fetchVmStatus = async () => {
-    try {
-      const res = await fetch(`${API_URL}/api/deploy/status`);
-        const data = await res.json();
-        setVmConnected(data.connected);
-    } catch {
-          setVmConnected(false);
-    }
-  };
-
-  useEffect(() => {
-          fetchVmStatus();
-        const interval = setInterval(fetchVmStatus, 10000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const handleDeploy = async () => {
-    try {
-          await deployTopology({ nodes, edges });
-        toast.success('Deployment started');
-    } catch (e: any) {
-          toast.error(`Deployment failed: ${e.message}`);
-    }
-  };
-
-  // Inside the header div (around line 238) add the Deploy button and status badge
-  // Replace the existing header div content with the following (partial snippet):
-  // <div className="flex h-14 items-center justify-between border-b px-3">
-  //   ... existing AI assistant elements ...
-  //   <Button variant="ghost" size="icon" onClick={handleDeploy} aria-label="Deploy topology">
-  //     <CloudCog className="size-4" />
-  //   </Button>
-  //   {vmConnected !== null && (
-            //     <span className={cn("ml-2 text-xs", vmConnected ? "text-success" : "text-destructive")}>
-            //       {vmConnected ? "VM Connected" : "VM Offline"}
-            //     </span>
-            //   )}
-            //   ... existing toggle buttons ...
-            // </div><div className="flex items-center gap-2"><div className="grid size-8 place-items-center rounded-md bg-primary text-primary-foreground"><Bot className="size-4" /></div>{panel !== "min" && <div><div className="text-xs font-semibold">AI Chat Assistant</div><div className="text-[9px] text-success">● TOPOLOGY CONTEXT ONLINE</div></div>}</div><div className="flex">{panel !== "min" && <Button variant="ghost" size="icon" onClick={() => setPanel(panel === "full" ? "open" : "full")} aria-label="Toggle full screen"><Maximize2 /></Button>}<Button variant="ghost" size="icon" onClick={() => setPanel(panel === "min" ? "open" : "min")} aria-label="Minimize assistant">{panel === "min" ? <Bot /> : <Minimize2 />}</Button>{panel === "full" && <Button variant="ghost" size="icon" onClick={() => setPanel("open")} aria-label="Close full screen"><X /></Button>}</div></div>
-            { panel !== "min" && <><Conversation className="min-h-0"><ConversationContent className="gap-5 p-4">{messages.map(m => <Message key={m.id} from={m.role}><MessageContent className={m.role === "user" ? "bg-primary text-primary-foreground" : ""}><MessageResponse>{m.text}</MessageResponse></MessageContent></Message>)}{thinking && <Shimmer className="text-xs">Inspecting addresses and paths…</Shimmer>}</ConversationContent><ConversationScrollButton /></Conversation><div className="border-t p-3"><PromptInput onSubmit={(m: { text: string }) => send(m)}><PromptInputTextarea autoFocus placeholder="Ask me about your current IP configurations or how to troubleshoot this layout." /><PromptInputFooter className="justify-end"><PromptInputSubmit disabled={thinking} status={thinking ? "submitted" : "ready"} /></PromptInputFooter></PromptInput></div></>}
-      </aside>
+      {assistantPanel !== "closed" && <aside style={{ width: assistantPanel === "full" ? undefined : assistantWidth }} className={cn("glass-panel z-40 flex flex-col border-l transition-[width] duration-200", assistantPanel === "full" ? "fixed inset-3" : "relative w-[min(92vw,36rem)] sm:w-auto")}>
+        {assistantPanel === "open" && <div onMouseDown={e => { const startX = e.clientX, startW = assistantWidth; const move = (m: MouseEvent) => setAssistantWidth(Math.min(580, Math.max(320, startW + startX - m.clientX))); const up = () => { window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); }; window.addEventListener("mousemove", move); window.addEventListener("mouseup", up); }} className="absolute -left-1 top-0 z-50 hidden h-full w-2 cursor-col-resize sm:block" />}
+        <div className="flex h-14 items-center justify-between border-b px-3"><div className="flex items-center gap-2"><div className="grid size-8 place-items-center rounded-md bg-primary text-primary-foreground"><Bot className="size-4" /></div><div><div className="text-xs font-semibold">AI Assistant</div><div className="text-[9px] text-success">TOPOLOGY CONTEXT ONLINE</div></div></div><div className="flex"><Button variant="ghost" size="icon" onClick={deleteChatHistory} aria-label="Delete chat history"><Trash2 /></Button><Button variant="ghost" size="icon" onClick={() => setAssistantPanel(current => current === "full" ? "open" : "full")} aria-label="Toggle assistant fullscreen">{assistantPanel === "full" ? <Minimize2 /> : <Maximize2 />}</Button><Button variant="ghost" size="icon" onClick={() => setAssistantPanel("closed")} aria-label="Collapse assistant"><X /></Button></div></div>
+        <Conversation className="min-h-0"><ConversationContent className="gap-5 p-4">{messages.map(m => <Message key={m.id} from={m.role}><MessageContent className={m.role === "user" ? "bg-primary text-primary-foreground" : ""}><MessageResponse>{m.text}</MessageResponse></MessageContent></Message>)}{thinking && <Shimmer className="text-xs">Inspecting addresses and paths…</Shimmer>}</ConversationContent><ConversationScrollButton /></Conversation><div className="border-t p-3"><PromptInput onSubmit={(m: { text: string }) => send(m)}><PromptInputTextarea autoFocus placeholder="Ask me about your current IP configurations or how to troubleshoot this layout." /><PromptInputFooter className="justify-end"><PromptInputSubmit disabled={thinking} status={thinking ? "submitted" : "ready"} /></PromptInputFooter></PromptInput></div>
+      </aside>}
 
       {/* Telemetry side panel */}
-      {panel !== "min" && (
-        <aside
-          className={cn(
-            "glass-panel z-30 flex w-[260px] flex-col border-l bg-card p-4",
-            panel === "full" ? "fixed inset-y-0 right-0" : ""
-          )}
-        >
-          <div className="flex items-center justify-between border-b pb-2">
-            <h2 className="text-sm font-semibold">Mininet Telemetry</h2>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setPanel(panel === "full" ? "open" : "full")}
-              aria-label="Toggle panel size"
-            >
-              {panel === "full" ? <Minimize2 /> : <Maximize2 />}
-            </Button>
-          </div>
+      {telemetryPanel !== "closed" && (
+        <aside style={{ width: telemetryPanel === "full" ? undefined : telemetryWidth }} className={cn("glass-panel z-30 flex flex-col border-l bg-card p-4", telemetryPanel === "full" ? "fixed inset-3" : "relative w-[min(92vw,20rem)] sm:w-auto")}>
+          {telemetryPanel === "open" && <div onMouseDown={e => { const startX = e.clientX, startW = telemetryWidth; const move = (m: MouseEvent) => setTelemetryWidth(Math.min(420, Math.max(240, startW + startX - m.clientX))); const up = () => { window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); }; window.addEventListener("mousemove", move); window.addEventListener("mouseup", up); }} className="absolute -left-1 top-0 z-50 hidden h-full w-2 cursor-col-resize sm:block" />}
+          <div className="flex items-center justify-between border-b pb-2"><div><h2 className="text-sm font-semibold">Mininet Telemetry</h2><p className="text-[10px] text-muted-foreground">Simulated and transient until a VM is connected</p></div><div className="flex"><Button variant="ghost" size="icon" onClick={() => setTelemetryPanel(current => current === "full" ? "open" : "full")} aria-label="Toggle telemetry fullscreen">{telemetryPanel === "full" ? <Minimize2 /> : <Maximize2 />}</Button><Button variant="ghost" size="icon" onClick={() => setTelemetryPanel("closed")} aria-label="Collapse telemetry"><X /></Button></div></div>
           {!telemetry ? (
             <p className="mt-2 text-sm text-muted-foreground">Loading telemetry…</p>
           ) : (
             <div className="mt-2 space-y-3">
               <div className="rounded border p-2">
                 <p className="text-xs font-medium text-muted-foreground">CPU Usage</p>
-                <p className="text-lg font-semibold">{telemetry.cpu_usage_pct?.toFixed(1)}%</p>
+                <p className="text-lg font-semibold">{telemetrySummary.cpu.toFixed(1)}%</p>
               </div>
               <div className="rounded border p-2">
                 <p className="text-xs font-medium text-muted-foreground">Latency</p>
-                <p className="text-lg font-semibold">{telemetry.latency_ms?.toFixed(0)} ms</p>
+                <p className="text-lg font-semibold">{telemetrySummary.latency.toFixed(0)} ms</p>
               </div>
               <div className="rounded border p-2">
                 <p className="text-xs font-medium text-muted-foreground">Throughput</p>
-                <p className="text-lg font-semibold">{telemetry.throughput_mbps?.toFixed(1)} Mbps</p>
+                <p className="text-lg font-semibold">{telemetrySummary.throughput.toFixed(1)} Mbps</p>
               </div>
             </div>
           )}
         </aside>
       )}
-      <Button className="absolute bottom-4 right-4 z-30 sm:hidden" size="icon" onClick={() => setPanel("full")} aria-label="Open network assistant"><Bot /></Button>
-    </main>;
+      <div className="absolute bottom-4 right-4 z-30 flex gap-2 sm:hidden"><Button size="icon" onClick={() => setAssistantPanel("full")} aria-label="Open network assistant"><Bot /></Button><Button size="icon" onClick={() => setTelemetryPanel("full")} aria-label="Open telemetry"><Gauge /></Button></div>
+    </main>
+  );
 }

@@ -5,3 +5,4 @@ pydantic-settings
 networkx
 numpy
 pandas
+paramiko

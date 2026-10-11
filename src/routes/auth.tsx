@@ -9,12 +9,21 @@ import { supabase } from "@/integrations/supabase/custom-client";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({ meta: [
-    { title: "Sign in | NexusTwin" }, { name: "description", content: "Secure access to your NexusTwin network workspace." },
-    { property: "og:title", content: "Sign in | NexusTwin" }, { property: "og:description", content: "Secure access to your NexusTwin network workspace." },
+    { title: "Sign in | NetTransform AI" }, { name: "description", content: "Secure access to your NetTransform AI network workspace." },
+    { property: "og:title", content: "Sign in | NetTransform AI" }, { property: "og:description", content: "Secure access to your NetTransform AI network workspace." },
     { property: "og:type", content: "website" }, { name: "twitter:card", content: "summary" },
   ]}),
   component: AuthPage,
 });
+
+async function ensureUserProfile(user: { id: string; email?: string; user_metadata?: { display_name?: string } }) {
+  const displayName = user.user_metadata?.display_name || user.email?.split("@")[0] || "";
+  const { error } = await supabase.from("user_profiles").upsert(
+    { id: user.id, display_name: displayName },
+    { onConflict: "id", ignoreDuplicates: true },
+  );
+  return error;
+}
 
 function AuthPage() {
   const navigate = useNavigate();
@@ -32,6 +41,10 @@ function AuthPage() {
       setBusy(false);
       if (result.error) return setMessage(result.error.message);
       if (mode === "register" && !result.data.session) return setMessage("Check your inbox to confirm your account.");
+      if (result.data.user) {
+        const profileError = await ensureUserProfile(result.data.user);
+        if (profileError) return setMessage(`Account created, but your profile could not be initialized: ${profileError.message}`);
+      }
       void navigate({ to: "/topology", replace: true });
     } catch (err: any) {
       setMessage(err.message || "An unexpected error occurred");
@@ -63,13 +76,13 @@ function AuthPage() {
   return <main className="grid min-h-screen bg-background lg:grid-cols-[1.1fr_.9fr]">
     <section className="relative hidden overflow-hidden border-r bg-primary p-12 text-primary-foreground lg:flex lg:flex-col lg:justify-between">
       <div className="absolute inset-0 opacity-15 grid-surface" />
-      <div className="relative flex items-center gap-3"><div className="grid size-10 place-items-center rounded-md border border-primary-foreground/20"><Network /></div><span className="text-xl font-bold">NexusTwin</span></div>
-      <div className="relative max-w-xl"><p className="mb-5 font-mono text-xs uppercase opacity-70">Enterprise network intelligence</p><h1 className="text-5xl font-semibold leading-tight">See every path.<br/>Simulate every change.</h1><p className="mt-6 max-w-md text-base opacity-75">A synchronized digital twin for designing, testing, and optimizing critical infrastructure.</p></div>
+      <div className="relative flex items-center gap-3"><div className="grid size-10 place-items-center rounded-md border border-primary-foreground/20"><Network /></div><span className="text-xl font-bold">NetTransform AI</span></div>
+      <div className="relative max-w-xl"><p className="mb-5 font-mono text-xs uppercase opacity-70">AI network transformation</p><h1 className="text-5xl font-semibold leading-tight">See every path.<br/>Simulate every change.</h1><p className="mt-6 max-w-md text-base opacity-75">Simulate, modernize, and optimize critical network infrastructure with evidence-aware decision support.</p></div>
       <div className="relative flex items-center gap-3 text-sm opacity-75"><ShieldCheck className="size-4" /> Encrypted workspace · Realtime state · Isolated access</div>
     </section>
     <section className="flex items-center justify-center p-6"><div className="w-full max-w-md">
-      <div className="mb-8 lg:hidden"><Network className="mb-3 text-primary"/><h1 className="text-2xl font-bold">NexusTwin</h1></div>
-      <p className="font-mono text-xs uppercase text-primary">Secure access</p><h2 className="mt-2 text-3xl font-semibold">{mode === "login" ? "Welcome back" : "Create your workspace"}</h2><p className="mt-2 text-sm text-muted-foreground">{mode === "login" ? "Resume your network operations workspace." : "Start building your enterprise digital twin."}</p>
+      <div className="mb-8 lg:hidden"><Network className="mb-3 text-primary"/><h1 className="text-2xl font-bold">NetTransform AI</h1></div>
+      <p className="font-mono text-xs uppercase text-primary">Secure access</p><h2 className="mt-2 text-3xl font-semibold">{mode === "login" ? "Welcome back" : "Create your workspace"}</h2><p className="mt-2 text-sm text-muted-foreground">{mode === "login" ? "Resume your network transformation workspace." : "Start building your AI network simulation workspace."}</p>
       <form className="mt-8 space-y-4" onSubmit={submit}>
         {mode === "register" && <div className="space-y-2"><Label htmlFor="name">Display name</Label><Input id="name" name="name" required placeholder="Alex Morgan" /></div>}
         <div className="space-y-2"><Label htmlFor="email">Work email</Label><Input id="email" name="email" type="email" required placeholder="alex@company.com" /></div>
@@ -80,7 +93,7 @@ function AuthPage() {
       </form>
       <div className="my-5 flex items-center gap-3 text-xs text-muted-foreground"><div className="h-px flex-1 bg-border"/>OR<div className="h-px flex-1 bg-border"/></div>
       <Button variant="outline" className="w-full" onClick={google} disabled={busy}><span className="font-bold text-primary">G</span> Continue with Google</Button>
-      <p className="mt-6 text-center text-sm text-muted-foreground">{mode === "login" ? "New to NexusTwin?" : "Already have an account?"} <button className="font-semibold text-primary" onClick={() => { setMode(mode === "login" ? "register" : "login"); setMessage(""); }}>{mode === "login" ? "Create account" : "Sign in"}</button></p>
+      <p className="mt-6 text-center text-sm text-muted-foreground">{mode === "login" ? "New to NetTransform AI?" : "Already have an account?"} <button className="font-semibold text-primary" onClick={() => { setMode(mode === "login" ? "register" : "login"); setMessage(""); }}>{mode === "login" ? "Create account" : "Sign in"}</button></p>
     </div></section>
   </main>;
 }

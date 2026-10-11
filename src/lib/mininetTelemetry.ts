@@ -17,9 +17,3 @@ export async function fetchMininetTelemetry(): Promise<any> {
     }
     return response.json();
 }
-const response = await fetch(`${API_URL}/api/mininet/telemetry`);
-if (!response.ok) {
-    throw new Error(`Failed to fetch telemetry: ${response.status}`);
-}
-return response.json();
-}

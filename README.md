@@ -1,4 +1,6 @@
-# Welcome to AI POWERED PLATFORM FOR DIGITAL TWIN ENTERPRISE
+# NetTransform AI
+
+AI-powered network simulation, transformation, modernization, optimization, and decision support.
 
 This project was built with [Lovable](https://lovable.dev).
 

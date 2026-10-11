@@ -10,7 +10,7 @@ import type { Json } from "@/integrations/supabase/types";
 import { generateUUID } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/recommendations")({
-  head: () => ({ meta: [{ title: "Topology Recommendations | NexusTwin" }, { name: "description", content: "Review targeted improvements for your current enterprise network topology." }, { property: "og:title", content: "Topology Recommendations | NexusTwin" }, { property: "og:description", content: "Review targeted improvements for your current enterprise network topology." }, { property: "og:type", content: "website" }, { name: "twitter:card", content: "summary_large_image" }] }),
+  head: () => ({ meta: [{ title: "Topology Recommendations | NetTransform AI" }, { name: "description", content: "Review targeted improvements for your current enterprise network topology." }, { property: "og:title", content: "Topology Recommendations | NetTransform AI" }, { property: "og:description", content: "Review targeted improvements for your current enterprise network topology." }, { property: "og:type", content: "website" }, { name: "twitter:card", content: "summary_large_image" }] }),
   component: Recommendations,
 });
 
