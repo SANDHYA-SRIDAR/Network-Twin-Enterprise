@@ -66,6 +66,28 @@ const cableOptions: Array<{ value: CableType; label: string; short: string }> = 
   { value: "console", label: "Console", short: "Console" },
 ];
 
+function createScreenshotTopology(): Snapshot {
+  const nodes: DeviceNode[] = [
+    { id: generateUUID(), type: "device", position: { x: 444, y: 112 }, data: { label: "1941 Router", deviceType: "core-router", model: "1941-router", status: "healthy", config: { ...emptyConfig(), ipAddress: "192.168.1.3" } } },
+    { id: generateUUID(), type: "device", position: { x: 429, y: 220 }, data: { label: "2960-24TT Switch", deviceType: "distribution-switch", model: "2960-24tt-switch", status: "healthy", config: emptyConfig() } },
+    { id: generateUUID(), type: "device", position: { x: 762, y: 206 }, data: { label: "PC1", deviceType: "cloud-server", model: "pc-pt", status: "healthy", config: emptyConfig() } },
+    { id: generateUUID(), type: "device", position: { x: 766, y: 322 }, data: { label: "PC2", deviceType: "cloud-server", model: "pc-pt", status: "healthy", config: { ...emptyConfig(), ipAddress: "192.168.1.2" } } },
+    { id: generateUUID(), type: "device", position: { x: 764, y: 431 }, data: { label: "PC3", deviceType: "cloud-server", model: "pc-pt", status: "healthy", config: emptyConfig() } },
+    { id: generateUUID(), type: "device", position: { x: 384, y: 368 }, data: { label: "Smart Load Balancer", deviceType: "load-balancer", model: "smart-load-balancer", status: "healthy", config: emptyConfig() } },
+    { id: generateUUID(), type: "device", position: { x: 263, y: 467 }, data: { label: "Server-PT", deviceType: "cloud-server", model: "server-pt", status: "healthy", config: emptyConfig() } },
+    { id: generateUUID(), type: "device", position: { x: 551, y: 470 }, data: { label: "Server-PT", deviceType: "cloud-server", model: "server-pt", status: "healthy", config: emptyConfig() } },
+  ];
+  const [router, sw, pc1, pc2, pc3, balancer, server1, server2] = nodes as [DeviceNode, DeviceNode, DeviceNode, DeviceNode, DeviceNode, DeviceNode, DeviceNode, DeviceNode];
+  const connect = (source: DeviceNode, target: DeviceNode, cableType: CableType = "straight-through"): CableEdge => ({
+    id: generateUUID(), source: source.id, target: target.id, sourceHandle: "right", targetHandle: "left", type: "cable", animated: false,
+    data: { cableType, status: "active", baseLatencyMs: 1, maxCapacityMbps: 1000, currentLoadMbps: 100, priorityLoadMbps: 20, qos: false },
+  });
+  return { nodes, edges: [
+    connect(router, sw, "crossover"), connect(router, balancer, "crossover"),
+    connect(sw, pc1), connect(sw, pc2), connect(sw, pc3), connect(sw, server2), connect(balancer, server1),
+  ] };
+}
+
 function cableStyle(type: CableType, highlighted = false): React.CSSProperties {
   const color = type === "fiber" ? "var(--cable-fiber)" : type === "serial" ? "var(--cable-serial)" : type === "console" ? "var(--cable-console)" : "var(--cable-copper)";
   return { stroke: color, strokeWidth: highlighted ? 5 : 2.5, strokeDasharray: type === "crossover" ? "9 6" : undefined, filter: highlighted ? "drop-shadow(0 0 5px var(--primary))" : undefined };
@@ -188,6 +210,19 @@ function WorkspaceInner() {
     }
   }, [rowsFor, snapshot, userId]);
   useEffect(() => { const save = () => void saveTopology(); window.addEventListener("nexustwin:save", save); return () => window.removeEventListener("nexustwin:save", save); }, [saveTopology]);
+  useEffect(() => {
+    const restore = () => {
+      if (!userId) { toast.error("Sign in before restoring this topology"); return; }
+      if (!window.confirm("Replace the current topology with the 8-device screenshot topology and save it to Supabase?")) return;
+      const previous = snapshot();
+      const restored = createScreenshotTopology();
+      setHistory(history => [...history.slice(-39), previous]); setFuture([]);
+      setNodes(restored.nodes); setEdges(restored.edges);
+      void saveTopology(restored).then(saved => { if (!saved) { setNodes(previous.nodes); setEdges(previous.edges); } });
+    };
+    window.addEventListener("nexustwin:restore-working-topology", restore);
+    return () => window.removeEventListener("nexustwin:restore-working-topology", restore);
+  }, [saveTopology, setEdges, setNodes, snapshot, userId]);
 
   const mapNode = useCallback((r: { id: string; node_type: string; label: string; position_x: number; position_y: number; status: string; configuration: unknown }): DeviceNode => {
     const deviceType = r.node_type as BaseDeviceType; const parsed = parseConfiguration(r.configuration, deviceType);

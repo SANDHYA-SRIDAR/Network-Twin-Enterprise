@@ -1,5 +1,5 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { Bot, CloudCog, CloudUpload, Gauge, LogOut, Moon, Network, Sun } from "lucide-react";
+import { Bot, CloudCog, CloudUpload, Gauge, LogOut, Moon, Network, RotateCcw, Sun } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/custom-client";
@@ -45,6 +45,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <Button variant={assistantOpen ? "secondary" : "ghost"} size="sm" onClick={() => { setAssistantOpen(current => !current); window.dispatchEvent(new Event("nettransform:toggle-assistant")); }} title="Toggle AI Assistant"><Bot /> <span className="hidden lg:inline">AI Assistant</span></Button>
           <Button variant={telemetryOpen ? "secondary" : "ghost"} size="sm" onClick={() => { setTelemetryOpen(current => !current); window.dispatchEvent(new Event("nettransform:toggle-telemetry")); }} title="Toggle simulated network monitor"><Gauge /> <span className="hidden lg:inline">Monitor</span></Button>
         </>}
+        {onTopology && <Button variant="outline" size="sm" onClick={() => window.dispatchEvent(new Event("nexustwin:restore-working-topology"))} title="Restore the screenshot topology"><RotateCcw /> <span className="hidden xl:inline">Restore working topology</span></Button>}
         {onTopology && <Button size="sm" onClick={() => window.dispatchEvent(new Event("nexustwin:save"))}><CloudUpload /> <span className="hidden sm:inline">Save Topology</span></Button>}
         <Button variant="ghost" size="icon" onClick={toggleTheme} aria-label={dark ? "Use light theme" : "Use dark theme"}>{dark ? <Sun /> : <Moon />}</Button>
         <Button variant="ghost" size="icon" onClick={logout} aria-label="Logout"><LogOut /></Button>

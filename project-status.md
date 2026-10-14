@@ -21,6 +21,7 @@ Last reviewed: 2026-10-14
 - **IMPLEMENTED, NOT VERIFIED:** Dijkstra routing excludes offline nodes and links, with congestion-adjusted latency as its edge weight.
 - Utilization, latency, throughput and packet loss are computed in `src/lib/network-simulation.ts`.
 - The topology workspace provides controls for device/link failure, traffic spikes, and a load balancing/QoS model. The link inspector edits latency, capacity, total load and critical traffic load. Link colors reflect utilization.
+- A Restore Working Topology action can rebuild the 8-device, 7-link layout from the user's screenshot and save it through the canonical Supabase topology tables. Device positions and crossover link choices are reconstructed approximately from the image; this restore action has not been verified in a live Supabase session.
 - Live Network Monitor reports a computed endpoint path, latency, throughput, packet loss and mean link utilization.
 - These metrics are synthetic by design, not measured telemetry. QoS reserves a modeled critical traffic load for the priority latency metric; it is not a packet-level QoS scheduler.
 - Scenario Studio loads and converts the authenticated user's Supabase graph for its modeled scenario request; it no longer submits a hard-coded sample graph.
