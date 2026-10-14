@@ -2,7 +2,3 @@ fastapi
 uvicorn
 pydantic
 pydantic-settings
-networkx
-numpy
-pandas
-paramiko

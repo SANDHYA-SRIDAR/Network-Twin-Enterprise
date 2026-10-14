@@ -25,6 +25,7 @@ export type NodeDefinition = {
   name: string;
   device_type: DeviceType;
   role?: string;
+  status?: string;
   interfaces?: InterfaceDefinition[];
   resources?: Record<string, number>;
   security_zone?: string | null;
@@ -118,6 +119,11 @@ export function isValidIpv4(value: string): boolean {
   });
 }
 
+function prefixFromMask(mask: string): number {
+  if (!isValidSubnetMask(mask)) return 24;
+  return mask.split('.').reduce((total, octet) => total + Number(octet).toString(2).replaceAll('0', '').length, 0);
+}
+
 export function isValidSubnetMask(value: string): boolean {
   if (!value) return false;
   const parts = value.split('.');
@@ -200,47 +206,84 @@ export function validateNetworkDefinition(network: NetworkDefinition): Validatio
 }
 
 export function convertReactFlowToNetwork(nodes: ReactFlowNodeLike[], edges: ReactFlowEdgeLike[], name = 'NetworkDefinition'): NetworkDefinition {
+  const deviceTypeMap: Record<string, DeviceType> = {
+    'core-router': 'router',
+    'distribution-switch': 'switch',
+    'cloud-server': 'server',
+    'load-balancer': 'load_balancer',
+    router: 'router',
+    switch: 'switch',
+    hub: 'hub',
+    access_point: 'access_point',
+    pc: 'pc',
+    server: 'server',
+    load_balancer: 'load_balancer',
+  };
   return {
     version: '1.0',
     name,
     description: 'Converted from a React Flow topology',
-    nodes: nodes.map((node) => ({
+    nodes: nodes.map((node) => {
+      const model = node.data?.model;
+      const mappedType = deviceTypeMap[node.data?.deviceType ?? 'switch'] ?? 'switch';
+      const deviceType = model === 'pc-pt' ? 'pc' : model === 'server-pt' ? 'server' : mappedType;
+      const config = node.data?.config ?? {};
+      const rawIps = String(config['ipAddress'] ?? '').split(',').map((value) => value.trim()).filter(Boolean);
+      const ports = String(config['interfacePorts'] ?? '').split(',').map((value) => value.trim()).filter(Boolean);
+      const interfaceIps = deviceType === 'router' ? rawIps : rawIps.slice(0, 1);
+      return {
       id: node.id,
       name: node.data?.label ?? node.id,
-      device_type: (node.data?.deviceType as DeviceType) ?? 'switch',
+      device_type: deviceType,
       role: 'endpoint',
-      interfaces: [{
-        id: `${node.id}-eth0`,
-        name: 'eth0',
-        type: 'ethernet',
-        status: 'up',
-        ip_configuration: {
-          ip_address: '10.0.0.10',
-          subnet_mask: '255.255.255.0',
-          prefix_length: 24,
-          gateway: '10.0.0.1',
-        },
-      }],
+      interfaces: interfaceIps.map((value, index) => {
+        const [ipAddress, prefixText] = value.split('/');
+        const prefixLength = prefixText ? Number(prefixText) : prefixFromMask(String(config['subnetMask'] ?? '255.255.255.0'));
+        const portName = ports[index] ?? `eth${index}`;
+        return {
+          id: `${node.id}-if${index}`,
+          name: portName,
+          type: 'ethernet' as const,
+          status: 'up',
+          ip_configuration: {
+            ip_address: ipAddress ?? '',
+            subnet_mask: prefixToMask(prefixLength),
+            prefix_length: prefixLength,
+            gateway: index === 0 && isValidIpv4(String(config['defaultGateway'] ?? '')) ? String(config['defaultGateway']) : null,
+          },
+        };
+      }),
       resources: {},
       security_zone: 'default',
       metadata: {
         position: node.position,
-        model: node.data?.model ?? node.data?.deviceType ?? 'unknown',
+        model: model ?? node.data?.deviceType ?? 'unknown',
+        http_service: deviceType === 'server' || deviceType === 'load_balancer' ? { enabled: true, port: Number(config['httpPort']) || 80 } : undefined,
       },
-    })),
-    links: edges.map((edge) => ({
-      id: edge.id,
-      source_node_id: edge.source,
-      target_node_id: edge.target,
-      source_interface_id: edge.sourceHandle ?? null,
-      target_interface_id: edge.targetHandle ?? null,
-      cable_type: (edge.data?.cableType as CableType) ?? 'straight-through',
-      bandwidth_mbps: 1000,
-      delay_ms: 1,
-      packet_loss_pct: 0,
-      status: 'active',
-      metadata: {},
-    })),
+    };
+    }),
+    links: edges.map((edge) => {
+      const interfaceId = (nodeId: string, handle: string | null | undefined) => {
+        if (handle) return handle;
+        const node = nodes.find((item) => item.id === nodeId);
+        if (deviceTypeMap[node?.data?.deviceType ?? ''] !== 'router') return null;
+        const linkIndex = edges.filter((item) => item.source === nodeId || item.target === nodeId).findIndex((item) => item.id === edge.id);
+        return `${nodeId}-if${linkIndex}`;
+      };
+      return {
+        id: edge.id,
+        source_node_id: edge.source,
+        target_node_id: edge.target,
+        source_interface_id: interfaceId(edge.source, edge.sourceHandle),
+        target_interface_id: interfaceId(edge.target, edge.targetHandle),
+        cable_type: (edge.data?.cableType as CableType) ?? 'straight-through',
+        bandwidth_mbps: 1000,
+        delay_ms: 1,
+        packet_loss_pct: 0,
+        status: 'active',
+        metadata: {},
+      };
+    }),
     routing: { static_routes: [], default_gateway: '10.0.0.1' },
     security: { zone: 'default', segmentation: [], firewall_rules: [] },
     simulation: { traffic_profile: 'baseline', duration_seconds: 300 },
@@ -248,22 +291,29 @@ export function convertReactFlowToNetwork(nodes: ReactFlowNodeLike[], edges: Rea
   };
 }
 
+function prefixToMask(prefix: number): string {
+  const bits = Math.max(0, Math.min(32, prefix));
+  const value = bits === 0 ? 0 : (0xffffffff << (32 - bits)) >>> 0;
+  return [24, 16, 8, 0].map((shift) => (value >>> shift) & 255).join('.');
+}
+
 export function convertNetworkToReactFlow(network: NetworkDefinition) {
   return {
     nodes: network.nodes.map((node) => ({
       id: node.id,
       type: 'device',
-      position: (node.metadata?.position as { x: number; y: number }) ?? { x: 0, y: 0 },
+      position: (node.metadata?.['position'] as { x: number; y: number }) ?? { x: 0, y: 0 },
       data: {
         label: node.name,
-        deviceType: node.device_type,
-        model: node.metadata?.model ?? node.device_type,
+        deviceType: node.device_type === 'router' ? 'core-router' : node.device_type === 'switch' ? 'distribution-switch' : node.device_type === 'load_balancer' ? 'load-balancer' : 'cloud-server',
+        model: node.metadata?.['model'] ?? node.device_type,
         status: 'healthy',
         config: {
-          ipAddress: node.interfaces?.[0]?.ip_configuration?.ip_address ?? '',
+          ipAddress: node.interfaces?.filter((iface) => iface.ip_configuration).map((iface) => `${iface.ip_configuration?.ip_address}/${iface.ip_configuration?.prefix_length ?? 24}`).join(', ') ?? '',
           subnetMask: node.interfaces?.[0]?.ip_configuration?.subnet_mask ?? '255.255.255.0',
           defaultGateway: node.interfaces?.[0]?.ip_configuration?.gateway ?? '',
           interfacePorts: node.interfaces?.map((iface) => iface.name).join(', ') ?? 'GigabitEthernet0/0',
+          httpPort: String((node.metadata?.['http_service'] as { port?: number } | undefined)?.port ?? 80),
         },
       },
     })),

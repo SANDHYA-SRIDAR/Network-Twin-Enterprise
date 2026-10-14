@@ -1,27 +1,13 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { ArrowRight, Cable, Gauge, Network, ShieldCheck, TrendingUp } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { AppShell } from '@/components/network/app-shell';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { runScenario, type ScenarioType } from '@/lib/scenario';
-
-const sampleNetwork = {
-  name: 'Enterprise Edge',
-  description: 'Branch modernization candidate',
-  nodes: [
-    { id: 'core', name: 'Core Router', device_type: 'router', status: 'active', interfaces: [{ id: 'eth0', name: 'eth0', ip_configuration: { ip_address: '10.10.10.1', subnet_mask: '255.255.255.0', gateway: '10.10.10.254' } }] },
-    { id: 'fw', name: 'Security Gateway', device_type: 'router', status: 'active', interfaces: [{ id: 'eth1', name: 'eth1', ip_configuration: { ip_address: '10.10.10.2', subnet_mask: '255.255.255.0', gateway: '10.10.10.254' } }] },
-    { id: 'app', name: 'Application Server', device_type: 'server', status: 'active', interfaces: [{ id: 'eth2', name: 'eth2', ip_configuration: { ip_address: '10.10.10.10', subnet_mask: '255.255.255.0', gateway: '10.10.10.254' } }] },
-    { id: 'db', name: 'Database Cluster', device_type: 'server', status: 'active', interfaces: [{ id: 'eth3', name: 'eth3', ip_configuration: { ip_address: '10.10.10.11', subnet_mask: '255.255.255.0', gateway: '10.10.10.254' } }] },
-  ],
-  links: [
-    { id: 'l1', source_node_id: 'core', target_node_id: 'fw', cable_type: 'fiber', bandwidth_mbps: 2000, delay_ms: 2, packet_loss_pct: 0 },
-    { id: 'l2', source_node_id: 'fw', target_node_id: 'app', cable_type: 'fiber', bandwidth_mbps: 1000, delay_ms: 4, packet_loss_pct: 0 },
-    { id: 'l3', source_node_id: 'fw', target_node_id: 'db', cable_type: 'fiber', bandwidth_mbps: 1000, delay_ms: 5, packet_loss_pct: 0 },
-  ],
-};
+import { supabase } from '@/integrations/supabase/custom-client';
+import { convertReactFlowToNetwork } from '@/lib/network-schema';
 
 const scenarioOptions: { type: ScenarioType; title: string; description: string }[] = [
   { type: 'link_failure', title: 'Link failure', description: 'Fail a primary circuit and assess failover resilience.' },
@@ -40,21 +26,60 @@ function ScenarioStudio() {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
+  const [baseline, setBaseline] = useState<any>(null);
+  const [loadingTopology, setLoadingTopology] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      const { data: auth } = await supabase.auth.getUser();
+      if (!auth.user) { if (active) { setError('Sign in to simulate your saved topology.'); setLoadingTopology(false); } return; }
+      const [{ data: nodeRows, error: nodeError }, { data: linkRows, error: linkError }] = await Promise.all([
+        supabase.from('network_nodes').select('*').eq('user_id', auth.user.id),
+        supabase.from('network_connections').select('*').eq('user_id', auth.user.id),
+      ]);
+      if (!active) return;
+      if (nodeError || linkError) { setError('Could not load your saved topology from Supabase.'); setLoadingTopology(false); return; }
+      const nodes = (nodeRows ?? []).map(row => {
+        const configuration = row.configuration && typeof row.configuration === 'object' && !Array.isArray(row.configuration) ? row.configuration : {};
+        return { id: row.id, position: { x: row.position_x, y: row.position_y }, data: { label: row.label, deviceType: row.node_type, model: typeof configuration['model'] === 'string' ? configuration['model'] : row.node_type, config: { ...configuration } as Record<string, unknown>, status: row.status } };
+      });
+      const edges = (linkRows ?? []).map(row => {
+        const configuration = row.configuration && typeof row.configuration === 'object' && !Array.isArray(row.configuration) ? row.configuration : {};
+        const metric = (key: string, fallback: number) => { const value = Number(configuration[key]); return Number.isFinite(value) ? value : fallback; };
+        return { id: row.id, source: row.source_node_id, target: row.target_node_id, data: { cableType: typeof configuration['cableType'] === 'string' ? configuration['cableType'] : 'straight-through', baseLatencyMs: metric('base_latency_ms', 1), maxCapacityMbps: metric('max_capacity_mbps', 1000), currentLoadMbps: metric('current_load_mbps', 100) } };
+      });
+      const converted = convertReactFlowToNetwork(nodes, edges, 'Saved topology');
+      converted.nodes.forEach(node => { node.status = nodes.find(row => row.id === node.id)?.data.status === 'offline' ? 'down' : 'active'; });
+      converted.links?.forEach(link => {
+        const row = (linkRows ?? []).find(item => item.id === link.id);
+        const configuration = row?.configuration && typeof row.configuration === 'object' && !Array.isArray(row.configuration) ? row.configuration : {};
+        link.status = row?.status === 'offline' ? 'down' : 'active';
+        link.delay_ms = Number(configuration['base_latency_ms'] ?? 1);
+        link.bandwidth_mbps = Number(configuration['max_capacity_mbps'] ?? 1000);
+        link.metadata = { ...link.metadata, current_load_mbps: Number(configuration['current_load_mbps'] ?? 100) };
+      });
+      setBaseline(converted);
+      setLoadingTopology(false);
+    })();
+    return () => { active = false; };
+  }, []);
 
   const selectedScenario = useMemo(
-    () => scenarioOptions.find((option) => option.type === selectedType) ?? scenarioOptions[0],
+    () => scenarioOptions.find((option) => option.type === selectedType) ?? scenarioOptions[0]!,
     [selectedType],
   );
 
   const executeScenario = async () => {
+    if (!baseline?.nodes?.length) { setError('Add and save devices in Topology before running a scenario.'); return; }
     setBusy(true);
     setError(null);
     try {
       const response = await runScenario({
         name: `Scenario: ${selectedScenario.title}`,
         description: selectedScenario.description,
-        baseline: sampleNetwork,
-        scenario: { type: selectedType, target: 'core', node_id: 'fw', value: 1.5 },
+        baseline,
+        scenario: { type: selectedType, target: baseline.links?.[0]?.id, link_id: baseline.links?.[0]?.id, node_id: baseline.nodes[0]?.id, value: 1.5 },
         assumptions: { region: 'global-east', seasonality: 'normal' },
       });
       setResult(response);
@@ -104,9 +129,10 @@ function ScenarioStudio() {
                     </div>
                   </button>
                 ))}
-                <Button className="mt-4 w-full" onClick={executeScenario} disabled={busy}>
-                  {busy ? 'Simulating…' : 'Run scenario'}
+                <Button className="mt-4 w-full" onClick={executeScenario} disabled={busy || loadingTopology || !baseline?.nodes?.length}>
+                  {loadingTopology ? 'Loading saved topology…' : busy ? 'Simulating…' : 'Run scenario'}
                 </Button>
+                {!loadingTopology && !baseline?.nodes?.length && <p className="text-sm text-muted-foreground">Save a topology with at least one device before running scenarios.</p>}
                 {error && <p className="text-sm text-destructive">{error}</p>}
               </CardContent>
             </Card>
@@ -118,13 +144,13 @@ function ScenarioStudio() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div className="rounded-lg border bg-muted/20 p-3"><p className="text-muted-foreground">Nodes</p><p className="mt-1 text-xl font-semibold">{sampleNetwork.nodes.length}</p></div>
-                  <div className="rounded-lg border bg-muted/20 p-3"><p className="text-muted-foreground">Links</p><p className="mt-1 text-xl font-semibold">{sampleNetwork.links.length}</p></div>
+                  <div className="rounded-lg border bg-muted/20 p-3"><p className="text-muted-foreground">Nodes</p><p className="mt-1 text-xl font-semibold">{baseline?.nodes?.length ?? 0}</p></div>
+                  <div className="rounded-lg border bg-muted/20 p-3"><p className="text-muted-foreground">Links</p><p className="mt-1 text-xl font-semibold">{baseline?.links?.length ?? 0}</p></div>
                 </div>
                 <div className="space-y-2 text-sm text-muted-foreground">
-                  <div className="flex items-center gap-2"><Network className="size-4 text-primary" /> Enterprise edge topology</div>
-                  <div className="flex items-center gap-2"><Cable className="size-4 text-primary" /> Fiber backbone with path redundancy</div>
-                  <div className="flex items-center gap-2"><ShieldCheck className="size-4 text-primary" /> Policy-aligned resilience posture</div>
+                  <div className="flex items-center gap-2"><Network className="size-4 text-primary" /> Current saved topology</div>
+                  <div className="flex items-center gap-2"><Cable className="size-4 text-primary" /> Current canvas connections</div>
+                  <div className="flex items-center gap-2"><ShieldCheck className="size-4 text-primary" /> Modeled scenario results</div>
                 </div>
               </CardContent>
             </Card>

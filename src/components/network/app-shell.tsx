@@ -10,7 +10,6 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [dark, setDark] = useState(true);
   const [assistantOpen, setAssistantOpen] = useState(true);
   const [telemetryOpen, setTelemetryOpen] = useState(true);
-  const [workspaceStatus, setWorkspaceStatus] = useState<{ vm_status: string; mininet_status: string; simulation_status: string; message: string } | null>(null);
   useEffect(() => {
     const stored = localStorage.getItem("nexustwin-theme");
     const next = stored ? stored === "dark" : true;
@@ -19,10 +18,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, []);
   useEffect(() => {
     const onPanelState = (event: Event) => { const detail = (event as CustomEvent<{ assistantOpen?: boolean; telemetryOpen?: boolean }>).detail; if (typeof detail.assistantOpen === "boolean") setAssistantOpen(detail.assistantOpen); if (typeof detail.telemetryOpen === "boolean") setTelemetryOpen(detail.telemetryOpen); };
-    const onWorkspaceStatus = (event: Event) => setWorkspaceStatus((event as CustomEvent<typeof workspaceStatus>).detail);
     window.addEventListener("nettransform:panel-state", onPanelState);
-    window.addEventListener("nettransform:vm-status", onWorkspaceStatus);
-    return () => { window.removeEventListener("nettransform:panel-state", onPanelState); window.removeEventListener("nettransform:vm-status", onWorkspaceStatus); };
+    return () => { window.removeEventListener("nettransform:panel-state", onPanelState); };
   }, []);
   const toggleTheme = () => {
     const next = !dark;
@@ -46,11 +43,9 @@ export function AppShell({ children }: { children: ReactNode }) {
         <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex"><Link to="/recommendations"><CloudCog /> Recommendations</Link></Button>
         {onTopology && <>
           <Button variant={assistantOpen ? "secondary" : "ghost"} size="sm" onClick={() => { setAssistantOpen(current => !current); window.dispatchEvent(new Event("nettransform:toggle-assistant")); }} title="Toggle AI Assistant"><Bot /> <span className="hidden lg:inline">AI Assistant</span></Button>
-          <Button variant={telemetryOpen ? "secondary" : "ghost"} size="sm" onClick={() => { setTelemetryOpen(current => !current); window.dispatchEvent(new Event("nettransform:toggle-telemetry")); }} title="Toggle Mininet Telemetry"><Gauge /> <span className="hidden lg:inline">Telemetry</span></Button>
-          {workspaceStatus && <span title={workspaceStatus.message} className="hidden max-w-64 truncate px-2 text-[10px] text-muted-foreground xl:inline">VM: {workspaceStatus.vm_status} · Mininet: {workspaceStatus.mininet_status} · Simulation: {workspaceStatus.simulation_status}</span>}
+          <Button variant={telemetryOpen ? "secondary" : "ghost"} size="sm" onClick={() => { setTelemetryOpen(current => !current); window.dispatchEvent(new Event("nettransform:toggle-telemetry")); }} title="Toggle simulated network monitor"><Gauge /> <span className="hidden lg:inline">Monitor</span></Button>
         </>}
         {onTopology && <Button size="sm" onClick={() => window.dispatchEvent(new Event("nexustwin:save"))}><CloudUpload /> <span className="hidden sm:inline">Save Topology</span></Button>}
-        {onTopology && <Button variant="ghost" size="icon" onClick={() => window.dispatchEvent(new Event("nettransform:deploy"))} aria-label="Deploy topology" title="Deploy topology"><CloudCog /></Button>}
         <Button variant="ghost" size="icon" onClick={toggleTheme} aria-label={dark ? "Use light theme" : "Use dark theme"}>{dark ? <Sun /> : <Moon />}</Button>
         <Button variant="ghost" size="icon" onClick={logout} aria-label="Logout"><LogOut /></Button>
       </nav>

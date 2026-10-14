@@ -16,18 +16,19 @@ class ScenarioEngine:
         evidence: List[str] = []
 
         if scenario_type == "link_failure":
-            target = scenario_config.get("target") or scenario_config.get("node_id")
+            target = scenario_config.get("link_id") or scenario_config.get("target") or scenario_config.get("node_id")
             filtered_links = [
                 link for link in scenario.links
-                if target is None or link.source_node_id == target or link.target_node_id == target
+                if target is None or link.id == target or link.source_node_id == target or link.target_node_id == target
             ]
             for link in filtered_links:
                 link.status = "down"
                 link.delay_ms = max(link.delay_ms or 0, 200)
                 link.packet_loss_pct = min((link.packet_loss_pct or 0) + 12, 100)
-            if not filtered_links:
-                scenario.links[0].status = "down"
-            evidence.append(f"{scenario_type}: degraded path for {target or 'selected link'}")
+            if not filtered_links and target is None and scenario.links:
+                filtered_links = [scenario.links[0]]
+                filtered_links[0].status = "down"
+            evidence.append(f"{scenario_type}: degraded path for {target or 'selected link'}" if filtered_links else f"{scenario_type}: no matching link found for {target}")
 
         elif scenario_type == "device_failure":
             node_id = scenario_config.get("node_id") or scenario_config.get("target")
@@ -42,8 +43,8 @@ class ScenarioEngine:
 
         elif scenario_type == "traffic_increase":
             for link in scenario.links:
-                link.bandwidth_mbps = max((link.bandwidth_mbps or 0) * 1.5, 50)
-                link.packet_loss_pct = min((link.packet_loss_pct or 0) + 5, 100)
+                current_load = float(link.metadata.get("current_load_mbps", 100))
+                link.metadata["current_load_mbps"] = current_load * 1.5
             evidence.append("traffic profile increased across all active links")
 
         elif scenario_type == "bandwidth_change":
@@ -133,11 +134,25 @@ class ScenarioEngine:
     def _summarize_network(network: NetworkDefinition) -> Dict[str, Any]:
         link_count = len(network.links)
         node_count = len(network.nodes)
-        throughput = sum((link.bandwidth_mbps or 0) for link in network.links) if network.links else 0.0
-        latency = sum((link.delay_ms or 0) for link in network.links) / max(1, link_count)
-        loss_probability = min(1.0, sum((link.packet_loss_pct or 0) for link in network.links) / max(1, link_count) / 100)
-        down_nodes = sum(1 for node in network.nodes if getattr(node, "status", "active") == "down")
-        unhealthy_links = sum(1 for link in network.links if getattr(link, "status", "active") == "down")
+        active_links = [link for link in network.links if getattr(link, "status", "active") not in {"down", "offline", "failed"}]
+        link_metrics = []
+        for link in active_links:
+            capacity = max(float(link.bandwidth_mbps or 0), 0.001)
+            load = max(0.0, float(link.metadata.get("current_load_mbps", 100)))
+            utilization_pct = load / capacity * 100
+            safe_utilization = min(max(utilization_pct, 0), 99.9)
+            queue_delay = (safe_utilization / (100 - safe_utilization)) * 10 if safe_utilization > 70 else 0
+            overload_loss = min(100.0, (utilization_pct - 100) * 0.5) if utilization_pct > 100 else 0.0
+            link_metrics.append({
+                "throughput": min(load, capacity),
+                "latency": float(link.delay_ms or 0) + queue_delay,
+                "loss": max(float(link.packet_loss_pct or 0), overload_loss),
+            })
+        throughput = sum(metric["throughput"] for metric in link_metrics)
+        latency = sum(metric["latency"] for metric in link_metrics) / max(1, len(link_metrics))
+        loss_probability = min(1.0, sum(metric["loss"] for metric in link_metrics) / max(1, len(link_metrics)) / 100)
+        down_nodes = sum(1 for node in network.nodes if getattr(node, "status", "active") in {"down", "offline", "failed"})
+        unhealthy_links = sum(1 for link in network.links if getattr(link, "status", "active") in {"down", "offline", "failed"})
         risk_score = min(1.0, (down_nodes * 0.35) + (unhealthy_links * 0.2) + (loss_probability * 0.55))
         redundancy = 1.0 - (1.0 / max(1.0, link_count + node_count / 2.0))
         return {
