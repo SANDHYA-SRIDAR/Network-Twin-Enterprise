@@ -69,10 +69,16 @@ export type FailureSimulationResult = {
 };
 
 async function request<T>(path: string, accessToken: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_URL}/api/failure-simulation${path}`, {
-    ...init,
-    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json', ...init?.headers },
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_URL}/api/failure-simulation${path}`, {
+      ...init,
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json', ...init?.headers },
+    });
+  } catch (error) {
+    if (error instanceof TypeError) throw new Error(`Cannot reach the Failure Simulation API at ${API_URL}. Start the FastAPI backend on port 8003 and set VITE_API_URL to its reachable address.`);
+    throw error;
+  }
   if (!response.ok) {
     let message = `Simulation API returned ${response.status}`;
     try {

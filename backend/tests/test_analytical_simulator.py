@@ -41,6 +41,7 @@ class AnalyticalSimulatorTests(unittest.TestCase):
         modernized = run_modernization(simple, failed, "link_failure", {"link_id": "primary"}, self.traffic, result["failed_metrics"], result["assumptions"])
         candidate = NetworkDefinition.model_validate(modernized["modernized_topology"])
         self.assertTrue(modernized["modernization"]["resolved"])
+        self.assertGreater(len(modernized["modernization"]["recommendation"]["implementation_steps"]), 0)
         self.assertTrue(any(link.metadata.get("candidate") for link in candidate.links))
         self.assertTrue(modernized["modernized_metrics"]["flow_connected"])
 

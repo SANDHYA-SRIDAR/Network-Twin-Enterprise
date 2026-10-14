@@ -1,11 +1,11 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { ArrowRight, Cable, Gauge, Network, ShieldCheck, TrendingUp } from 'lucide-react';
+import { ArrowRight, Cable, Gauge, Network, ShieldCheck } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { AppShell } from '@/components/network/app-shell';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { runScenario, SCENARIO_OPTIONS, type ScenarioType } from '@/lib/scenario';
+import { SCENARIO_OPTIONS, type ScenarioType } from '@/lib/scenario';
 import { supabase } from '@/integrations/supabase/custom-client';
 import { convertReactFlowToNetwork } from '@/lib/network-schema';
 
@@ -16,7 +16,6 @@ export const Route = createFileRoute('/_authenticated/scenarios')({
 function ScenarioStudio() {
   const [selectedType, setSelectedType] = useState<ScenarioType>('traffic_increase');
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [baseline, setBaseline] = useState<any>(null);
   const [loadingTopology, setLoadingTopology] = useState(true);
@@ -67,17 +66,29 @@ function ScenarioStudio() {
     setBusy(true);
     setError(null);
     try {
-      const response = await runScenario({
-        name: `Scenario: ${selectedScenario.title}`,
-        description: selectedScenario.description,
-        baseline,
-        scenario: { type: selectedType, target: baseline.links?.[0]?.id, link_id: baseline.links?.[0]?.id, node_id: baseline.nodes[0]?.id, value: 1.5 },
-        assumptions: { region: 'global-east', seasonality: 'normal' },
-      });
-      setResult(response);
-    } catch (apiError) {
-      const message = apiError instanceof Error ? apiError.message : 'Scenario request failed';
-      setError(message);
+      if (baseline.nodes.length < 2) throw new Error('Add at least two saved devices so the failure simulation can evaluate a traffic flow.');
+      const endpoints = baseline.nodes.filter((node: any) => !['router', 'switch', 'hub', 'access_point'].includes(node.device_type));
+      const source = endpoints[0]?.id ?? baseline.nodes[0]?.id;
+      const destination = endpoints.at(-1)?.id ?? baseline.nodes.at(-1)?.id;
+      if (!source || !destination || source === destination) throw new Error('Choose two distinct devices for a traffic flow.');
+      const firstLink = baseline.links?.[0];
+      const firstNode = baseline.nodes[0];
+      const params = new URLSearchParams({ scenario: selectedType, autoRun: '1', flow_source_id: source, flow_target_id: destination, offered_mbps: '100', duration_seconds: '60' });
+      if (firstLink) params.set('link_id', firstLink.id);
+      if (firstNode) params.set('node_id', firstNode.id);
+      if (selectedType === 'traffic_increase') params.set('factor', '1.5');
+      if (selectedType === 'capacity_increase') params.set('increase_mbps', '250');
+      if (selectedType === 'bandwidth_change' && firstLink) params.set('bandwidth_mbps', String(Math.max(1, Number(firstLink.bandwidth_mbps ?? 1000) * 0.5)));
+      if (selectedType === 'redundancy_add') {
+        const pair = baseline.nodes.flatMap((left: any, index: number) => baseline.nodes.slice(index + 1).map((right: any) => ({ left, right })))
+          .find(({ left, right }: any) => !(baseline.links ?? []).some((link: any) => new Set([link.source_node_id, link.target_node_id]).has(left.id) && new Set([link.source_node_id, link.target_node_id]).has(right.id)));
+        if (!pair) throw new Error('No unconnected device pair is available for a redundancy scenario.');
+        params.set('redundancy_source_id', pair.left.id);
+        params.set('redundancy_target_id', pair.right.id);
+      }
+      window.location.assign(`/failure-simulation?${params.toString()}`);
+    } catch (runError) {
+      setError(runError instanceof Error ? runError.message : 'Could not open failure simulation.');
     } finally {
       setBusy(false);
     }
@@ -148,47 +159,6 @@ function ScenarioStudio() {
             </Card>
           </div>
 
-          {result && (
-            <div className="mt-8 grid gap-6 md:grid-cols-2 xl:grid-cols-4">
-              <Card>
-                <CardHeader className="pb-3"><CardTitle className="text-sm">Risk score</CardTitle></CardHeader>
-                <CardContent><p className="text-3xl font-semibold">{result.summary.risk_score}</p></CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="pb-3"><CardTitle className="text-sm">Redundancy</CardTitle></CardHeader>
-                <CardContent><p className="text-3xl font-semibold">{result.summary.service_redundancy}</p></CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="pb-3"><CardTitle className="text-sm">Throughput</CardTitle></CardHeader>
-                <CardContent><p className="text-3xl font-semibold">{result.summary.throughput_mbps} Mbps</p></CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="pb-3"><CardTitle className="text-sm">Latency</CardTitle></CardHeader>
-                <CardContent><p className="text-3xl font-semibold">{result.summary.latency_ms} ms</p></CardContent>
-              </Card>
-            </div>
-          )}
-
-          {result && (
-            <Card className="mt-8">
-              <CardHeader>
-                <CardTitle>Decision summary</CardTitle>
-                <CardDescription>{result.summary.decision}</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex flex-wrap gap-2">
-                  <Badge variant="secondary"><TrendingUp className="mr-1 size-3" /> {result.scenario_type}</Badge>
-                  <Badge variant="secondary"><Gauge className="mr-1 size-3" /> baseline: {result.baseline.risk_score}</Badge>
-                  <Badge variant="secondary"><ShieldCheck className="mr-1 size-3" /> provenance: {result.provenance}</Badge>
-                </div>
-                <ul className="space-y-2 text-sm text-muted-foreground">
-                  {result.evidence.map((item: string, index: number) => (
-                    <li key={`${item}-${index}`} className="rounded-md border bg-muted/20 p-3">{item}</li>
-                  ))}
-                </ul>
-              </CardContent>
-            </Card>
-          )}
         </div>
       </main>
     </AppShell>

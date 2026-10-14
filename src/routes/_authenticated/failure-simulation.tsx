@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { Activity, AlertTriangle, Check, Pause, Play, RotateCcw, ShieldAlert, Sparkles } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AppShell } from '@/components/network/app-shell';
 import { SimulationTopology } from '@/components/network/simulation-topology';
 import { Badge } from '@/components/ui/badge';
@@ -54,21 +54,25 @@ function metricRows(result: FailureSimulationResult | null): Array<{ label: stri
 }
 
 function FailureSimulationPage() {
+  const launchParams = useMemo(() => typeof window === 'undefined' ? new URLSearchParams() : new URLSearchParams(window.location.search), []);
+  const requestedScenario = launchParams.get('scenario') as ScenarioType | null;
+  const initialScenario = SCENARIO_OPTIONS.some(option => option.type === requestedScenario) ? requestedScenario! : 'link_failure';
+  const autoRunRef = useRef(false);
   const [saved, setSaved] = useState<TopologyState | null>(null);
   const [result, setResult] = useState<FailureSimulationResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [scenarioType, setScenarioType] = useState<ScenarioType>('link_failure');
-  const [nodeTarget, setNodeTarget] = useState('');
-  const [linkTarget, setLinkTarget] = useState('');
-  const [source, setSource] = useState('');
-  const [destination, setDestination] = useState('');
-  const [trafficMbps, setTrafficMbps] = useState(100);
-  const [durationSeconds, setDurationSeconds] = useState(60);
-  const [parameterValue, setParameterValue] = useState(250);
-  const [redundancySource, setRedundancySource] = useState('');
-  const [redundancyTarget, setRedundancyTarget] = useState('');
+  const [scenarioType, setScenarioType] = useState<ScenarioType>(initialScenario);
+  const [nodeTarget, setNodeTarget] = useState(launchParams.get('node_id') ?? '');
+  const [linkTarget, setLinkTarget] = useState(launchParams.get('link_id') ?? '');
+  const [source, setSource] = useState(launchParams.get('flow_source_id') ?? '');
+  const [destination, setDestination] = useState(launchParams.get('flow_target_id') ?? '');
+  const [trafficMbps, setTrafficMbps] = useState(Number(launchParams.get('offered_mbps') ?? 100));
+  const [durationSeconds, setDurationSeconds] = useState(Number(launchParams.get('duration_seconds') ?? 60));
+  const [parameterValue, setParameterValue] = useState(Number(launchParams.get('factor') ?? launchParams.get('bandwidth_mbps') ?? launchParams.get('increase_mbps') ?? 250));
+  const [redundancySource, setRedundancySource] = useState(launchParams.get('redundancy_source_id') ?? '');
+  const [redundancyTarget, setRedundancyTarget] = useState(launchParams.get('redundancy_target_id') ?? '');
   const [playing, setPlaying] = useState(false);
   const [playbackIndex, setPlaybackIndex] = useState(0);
   const [playbackStage, setPlaybackStage] = useState<'failure' | 'modernization'>('failure');
@@ -83,12 +87,12 @@ function FailureSimulationPage() {
         if (!active) return;
         setSaved(topology);
         const endpoints = topology.topology.nodes.filter(node => !['router', 'switch', 'hub', 'access_point'].includes(node.device_type));
-        setSource(endpoints[0]?.id ?? topology.topology.nodes[0]?.id ?? '');
-        setDestination(endpoints.at(-1)?.id ?? topology.topology.nodes.at(-1)?.id ?? '');
-        setNodeTarget(topology.topology.nodes[0]?.id ?? '');
-        setLinkTarget(topology.topology.links?.[0]?.id ?? '');
-        setRedundancySource(topology.topology.nodes[0]?.id ?? '');
-        setRedundancyTarget(topology.topology.nodes[1]?.id ?? '');
+        setSource(current => current || endpoints[0]?.id || topology.topology.nodes[0]?.id || '');
+        setDestination(current => current || endpoints.at(-1)?.id || topology.topology.nodes.at(-1)?.id || '');
+        setNodeTarget(current => current || topology.topology.nodes[0]?.id || '');
+        setLinkTarget(current => current || topology.topology.links?.[0]?.id || '');
+        setRedundancySource(current => current || topology.topology.nodes[0]?.id || '');
+        setRedundancyTarget(current => current || topology.topology.nodes[1]?.id || '');
       } catch (loadError) {
         if (active) setError(loadError instanceof Error ? loadError.message : 'Could not load the saved topology.');
       } finally { if (active) setLoading(false); }
@@ -155,6 +159,12 @@ function FailureSimulationPage() {
     finally { setBusy(false); }
   };
 
+  useEffect(() => {
+    if (launchParams.get('autoRun') !== '1' || loading || !saved || !parameterValid || !source || !destination || source === destination || autoRunRef.current) return;
+    autoRunRef.current = true;
+    void run();
+  }, [launchParams, loading, saved, parameterValid, source, destination]);
+
   const comparison = metricRows(result);
   const currentMetrics = result ? playbackStage === 'failure' ? result.failed_metrics : result.modernized_metrics ?? result.failed_metrics : EMPTY_METRICS;
   const currentNetwork = playbackStage === 'failure' ? failedTopology : modernizedTopology;
@@ -207,14 +217,14 @@ function FailureSimulationPage() {
         <div className="flex flex-wrap items-center gap-2"><Button variant="outline" size="sm" onClick={() => { setPlaybackStage('failure'); setPlaybackIndex(0); setPlaying(value => !value); }} disabled={!result.failure_steps.length}>{playing && playbackStage === 'failure' ? <Pause className="mr-2 size-4" /> : <Play className="mr-2 size-4" />}{playing && playbackStage === 'failure' ? 'Pause' : 'Play'}</Button><Button variant="outline" size="sm" onClick={() => { setPlaying(false); setPlaybackStage('failure'); setPlaybackIndex(0); }}><RotateCcw className="mr-2 size-4" />Replay</Button><span className="text-xs text-muted-foreground">Step {Math.min(playbackIndex, result.failure_steps.length)} / {result.failure_steps.length}</span><div className="h-2 min-w-40 flex-1 rounded bg-muted"><div className="h-2 rounded bg-primary transition-all" style={{ width: `${result.failure_steps.length ? Math.min(100, playbackIndex / result.failure_steps.length * 100) : 0}%` }} /></div></div>
         <SimulationTopology network={failedTopology} metrics={result.failed_metrics} {...(playbackStage === 'failure' && activeLinkId ? { activeLinkId } : {})} title="Failed Topology" />
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><MetricCard label="Sent / delivered / dropped" value={`${currentMetrics.packets_sent.toLocaleString()} / ${currentMetrics.packets_delivered.toLocaleString()} / ${currentMetrics.packets_dropped.toLocaleString()}`} /><MetricCard label="Packet loss" value={format(currentMetrics.packet_loss_pct)} unit="%" /><MetricCard label="Offered / achieved throughput" value={`${format(currentMetrics.offered_traffic_mbps)} / ${format(currentMetrics.throughput_mbps)}`} unit="Mbps" detail={`Route capacity ${format(currentMetrics.path_capacity_mbps)} Mbps`} /><MetricCard label="Average / maximum latency" value={`${format(currentMetrics.average_latency_ms)} / ${format(currentMetrics.maximum_latency_ms)}`} unit="ms" /><MetricCard label="Reachable devices" value={`${currentMetrics.reachable_nodes} / ${currentMetrics.total_nodes}`} /><MetricCard label="Link utilization" value={format(currentMetrics.mean_link_utilization_pct)} unit="% mean" /><MetricCard label="Congestion / bottlenecks" value={`${currentMetrics.congested_links} / ${currentMetrics.bottleneck_link_ids.length}`} /><MetricCard label="Active / failed links" value={`${currentMetrics.active_links} / ${currentMetrics.failed_links}`} /></div>
-        <div className="flex flex-wrap items-center gap-2"><Button onClick={modernize} disabled={busy}><Sparkles className="mr-2 size-4" />Resolve / Modernize Network</Button>{result.modernization && <Badge variant={result.modernization.resolved ? 'default' : 'destructive'}>{result.modernization.resolved ? 'Candidate improves modeled service' : 'No supported recovery found'}</Badge>}</div>
+        <div className="flex flex-wrap items-center gap-2"><Button onClick={modernize} disabled={busy}><Sparkles className="mr-2 size-4" />{result.modernization ? 'Refresh Solution Simulation' : 'Generate Solution Simulation'}</Button>{result.modernization && <Badge variant={result.modernization.resolved ? 'default' : 'destructive'}>{result.modernization.resolved ? 'Candidate improves modeled service' : 'No supported recovery found'}</Badge>}</div>
       </CardContent></Card>}
 
       {result?.modernization && result.modernized_topology && result.modernized_metrics && <Card><CardHeader><CardTitle>Modernized Network — Proposed Resolution</CardTitle><CardDescription>{result.modernization.summary} Candidate topology is an experiment snapshot; accepting or saving it to Topology Workspace is not part of this operation.</CardDescription></CardHeader><CardContent className="space-y-4">
         <div className="flex flex-wrap items-center gap-2"><Button variant="outline" size="sm" onClick={() => { setPlaybackStage('modernization'); setPlaybackIndex(0); setPlaying(value => !value); }} disabled={!result.modernization_steps.length}>{playing && playbackStage === 'modernization' ? <Pause className="mr-2 size-4" /> : <Play className="mr-2 size-4" />}{playing && playbackStage === 'modernization' ? 'Pause' : 'Play proposed route'}</Button><Button variant="outline" size="sm" onClick={() => { setPlaying(false); setPlaybackStage('modernization'); setPlaybackIndex(0); }}><RotateCcw className="mr-2 size-4" />Replay</Button><span className="text-xs text-muted-foreground">Candidate remains separate from the saved topology.</span></div>
         <SimulationTopology network={result.modernized_topology} metrics={result.modernized_metrics} {...(playbackStage === 'modernization' && activeLinkId ? { activeLinkId } : {})} title="Modernized Network — Proposed Resolution" />
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><MetricCard label="Packets delivered" value={result.modernized_metrics.packets_delivered.toLocaleString()} /><MetricCard label="Packet loss" value={format(result.modernized_metrics.packet_loss_pct)} unit="%" /><MetricCard label="Throughput" value={format(result.modernized_metrics.throughput_mbps)} unit="Mbps" /><MetricCard label="Latency" value={format(result.modernized_metrics.average_latency_ms)} unit="ms" /></div>
-        <div className="rounded-lg border p-4"><h3 className="font-medium">Recommendation</h3><dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2"><div><dt className="text-muted-foreground">Identified problem</dt><dd>{String(result.modernization.recommendation['problem'] ?? '')}</dd></div><div><dt className="text-muted-foreground">Root cause</dt><dd>{String(result.modernization.recommendation['root_cause'] ?? '')}</dd></div><div><dt className="text-muted-foreground">Proposed change</dt><dd>{String(result.modernization.recommendation['proposed_modification'] ?? '')}</dd></div><div><dt className="text-muted-foreground">Relative cost</dt><dd>{String(result.modernization.recommendation['relative_cost'] ?? 'Undetermined')} (no monetary cost model)</dd></div><div className="sm:col-span-2"><dt className="text-muted-foreground">Rationale</dt><dd>{String(result.modernization.recommendation['rationale'] ?? '')}</dd></div></dl></div>
+        <div className="rounded-lg border p-4"><h3 className="font-medium">Recommended solution and implementation</h3><p className="mt-1 text-sm text-muted-foreground">The candidate graph below applies this proposal in the analytical model. Use these steps to understand how the selected scenario could be addressed; no change is deployed automatically.</p><dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2"><div><dt className="text-muted-foreground">Identified problem</dt><dd>{String(result.modernization.recommendation['problem'] ?? '')}</dd></div><div><dt className="text-muted-foreground">Root cause</dt><dd>{String(result.modernization.recommendation['root_cause'] ?? '')}</dd></div><div><dt className="text-muted-foreground">Proposed change</dt><dd>{String(result.modernization.recommendation['proposed_modification'] ?? '')}</dd></div><div><dt className="text-muted-foreground">Relative cost</dt><dd>{String(result.modernization.recommendation['relative_cost'] ?? 'Undetermined')} (no monetary cost model)</dd></div><div className="sm:col-span-2"><dt className="text-muted-foreground">Why this proposal</dt><dd>{String(result.modernization.recommendation['rationale'] ?? '')}</dd></div></dl>{Array.isArray(result.modernization.recommendation['implementation_steps']) && <div className="mt-4"><h4 className="text-sm font-medium">Implementation outline</h4><ol className="mt-2 list-decimal space-y-2 pl-5 text-sm text-muted-foreground">{(result.modernization.recommendation['implementation_steps'] as string[]).map((step, index) => <li key={`${index}-${step}`}>{step}</li>)}</ol></div>}</div>
       </CardContent></Card>}
 
       {result && <Card><CardHeader><CardTitle>Three-Way Comparison</CardTitle><CardDescription>Original, failed, and candidate modernized results under equivalent traffic inputs. These are simulated metrics.</CardDescription></CardHeader><CardContent className="overflow-x-auto"><table className="w-full min-w-[640px] text-sm"><thead><tr className="border-b text-left"><th className="p-2">Metric</th><th className="p-2">Original baseline</th><th className="p-2">After failure</th><th className="p-2">After modernization</th></tr></thead><tbody>{comparison.map(row => <tr key={row.label} className="border-b"><th className="p-2 text-left font-medium">{row.label}</th><td className="p-2">{row.baseline}</td><td className="p-2">{row.failed}</td><td className="p-2">{row.modernized}</td></tr>)}</tbody></table>

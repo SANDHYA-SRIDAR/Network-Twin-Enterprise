@@ -2,7 +2,9 @@ from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    # Local development keeps the Vite/Supabase settings in the repository root.
+    # Load those as a fallback, while allowing backend/.env to override them.
+    model_config = SettingsConfigDict(env_file=("../.env", ".env"), extra="ignore")
 
     project_name: str = "NetTransform AI Backend"
     api_prefix: str = "/api"

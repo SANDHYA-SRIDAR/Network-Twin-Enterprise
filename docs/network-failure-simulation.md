@@ -17,7 +17,7 @@ SUPABASE_URL=https://<project-ref>.supabase.co
 SUPABASE_PUBLISHABLE_KEY=<project-publishable-or-anon-key>
 ```
 
-The value is the public project key, not a service-role key. Requests use the signed-in user's bearer token, so RLS applies to topology reads and experiment writes. Configure the frontend's `VITE_API_URL` to point to this FastAPI instance.
+The value is the public project key, not a service-role key. Requests use the signed-in user's bearer token, so RLS applies to topology reads and experiment writes. During local development, FastAPI reads `backend/.env` first and falls back to the repository-root `.env`; set `VITE_API_URL` to the reachable FastAPI address when it is not `http://127.0.0.1:8003`.
 
 ## Run locally
 
@@ -34,7 +34,7 @@ npm install
 npm run dev
 ```
 
-Sign in, open **Failure Simulation**, choose an existing Scenario Studio scenario, choose traffic endpoints and offered load, then run the failure simulation. After the failure metrics and playback are available, choose **Resolve / Modernize Network** to request a separate candidate snapshot. The original topology is never written by these endpoints.
+Sign in and choose a template in **Scenario Studio**. **Run scenario** opens **Failure Simulation** with that scenario and its selected topology targets, then starts the failed-state simulation automatically. Once it completes, choose **Generate Solution Simulation** for a separate candidate topology and an implementation outline. The original topology is never written by these endpoints.
 
 ## API
 

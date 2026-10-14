@@ -346,12 +346,57 @@ def _recommendation(scenario_type: str, parameters: dict[str, Any], before: dict
         change = "No automatic change was proposed."
         affected = [parameters.get("node_id"), parameters.get("link_id")]
         cost = "undetermined"
+    if scenario_type == "link_failure":
+        implementation_steps = ([
+            "Keep the failed connection marked unavailable and verify the candidate path between its two endpoints.",
+            "Add a redundant physical or logical connection between the failed link endpoints, with capacity and delay appropriate to the expected offered traffic.",
+            "Configure routing or failover policy to use that candidate path when the primary link is unavailable.",
+            "Validate reachability and traffic capacity under the same demand before approving a topology version.",
+        ] if not before.get("flow_connected") else [
+            "Confirm the calculated alternate route is permitted by the intended routing policy.",
+            "Configure route preference and failover detection so traffic moves to the surviving path when the primary link fails.",
+            "Validate the alternate path's capacity and latency under expected traffic before rollout.",
+        ])
+    elif scenario_type == "device_failure":
+        implementation_steps = [
+            "Select a compatible replacement for the unavailable device and restore its required configuration.",
+            "Reconnect the replacement to the same adjacent devices represented by the candidate links.",
+            "Restore addressing and routing/forwarding settings, then verify end-to-end reachability.",
+            "Run the same traffic demand against the replacement topology before approving a saved topology version.",
+        ]
+    elif scenario_type in {"traffic_increase", "bandwidth_change", "capacity_increase"}:
+        implementation_steps = [
+            "Review the bottleneck link IDs and proposed capacity in the candidate topology.",
+            "Confirm the target link and its interfaces support the proposed capacity; update both ends consistently.",
+            "If capacity cannot be upgraded, redistribute traffic across available paths where routing permits.",
+            "Re-run the same offered traffic and compare achieved throughput, utilization, delay, and packet loss before rollout.",
+        ] if resolved else [
+            "No overloaded link was identified for a supported capacity change. Check configured traffic demand and link capacities, then rerun the scenario.",
+        ]
+    elif scenario_type == "redundancy_add":
+        implementation_steps = [
+            "Review the candidate connection and confirm that the selected devices have compatible interfaces.",
+            "Set the intended link capacity and delay, then configure routing to use the alternate path when needed.",
+            "Test failover and verify that the new path has enough capacity for the offered traffic.",
+        ]
+    elif scenario_type == "segment_isolation":
+        implementation_steps = [
+            "Keep the isolated device and its incident paths disabled for this policy scenario.",
+            "Verify that only the intended segment is isolated and that required services remain reachable through approved paths.",
+            "No bypass is proposed because adding one would undo the requested isolation.",
+        ]
+    else:
+        implementation_steps = [
+            "The current topology schema lacks placement, site, and cloud-latency data required to evaluate this change.",
+            "Add those configuration fields before comparing cloud placement against the existing network.",
+        ]
     return {
         "problem": scenario_type.replace("_", " ").title(), "root_cause": cause,
         "proposed_modification": change, "affected_ids": [item for item in affected if item],
         "expected_benefits": ["improves modeled delivery or reachability" if resolved else "no recovery can be claimed from the current topology"],
         "trade_offs": ["candidate devices or links are simulations only and have not been deployed"],
         "relative_cost": cost, "rationale": f"Calculated from the saved graph using the same traffic demand; simulated throughput {before.get('throughput_mbps')} → {after.get('throughput_mbps')} Mbps and reachability {before.get('reachable_nodes')} → {after.get('reachable_nodes')} nodes.",
+        "implementation_steps": implementation_steps,
     }
 
 
