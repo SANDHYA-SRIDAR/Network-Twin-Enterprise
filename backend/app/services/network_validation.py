@@ -96,11 +96,11 @@ def validate_network_definition(network: NetworkDefinition) -> List[ValidationIs
         if link.source_node_id == link.target_node_id:
             issues.append(_make_issue(f"links.{link.id}", "self_link", "A link cannot connect a node to itself."))
 
-        if link.bandwidth_mbps <= 0:
+        if link.bandwidth_mbps is not None and link.bandwidth_mbps <= 0:
             issues.append(_make_issue(f"links.{link.id}.bandwidth_mbps", "invalid_bandwidth", "Bandwidth must be greater than zero."))
-        if link.delay_ms < 0:
+        if link.delay_ms is not None and link.delay_ms < 0:
             issues.append(_make_issue(f"links.{link.id}.delay_ms", "invalid_delay", "Delay cannot be negative."))
-        if not 0 <= link.packet_loss_pct <= 100:
+        if link.packet_loss_pct is not None and not 0 <= link.packet_loss_pct <= 100:
             issues.append(_make_issue(f"links.{link.id}.packet_loss_pct", "invalid_packet_loss", "Packet loss must be between 0 and 100."))
 
     if network.routing.default_gateway:

@@ -28,11 +28,12 @@ import { calculateLinkMetrics, findPathMetrics } from "@/lib/network-simulation"
 
 type BaseDeviceType = "core-router" | "distribution-switch" | "cloud-server" | "load-balancer";
 type DeviceModel = "pc-pt" | "1941-router" | "server-pt" | "hub-pt" | "accesspoint-pt" | "2960-24tt-switch" | "smart-load-balancer";
-type DeviceConfig = { ipAddress: string; subnetMask: string; defaultGateway: string; interfacePorts: string; httpPort: string };
-type DeviceData = { label: string; deviceType: BaseDeviceType; model: DeviceModel; status: "healthy" | "warning" | "offline"; config: DeviceConfig };
+type DeviceConfig = { ipAddress: string; subnetMask: string; defaultGateway: string; interfacePorts: string; httpPort: string; processingCapacityMbps?: number };
+type EditableDeviceField = "ipAddress" | "subnetMask" | "defaultGateway" | "interfacePorts" | "httpPort";
+export type DeviceData = { label: string; deviceType: BaseDeviceType; model: DeviceModel; status: "healthy" | "warning" | "offline"; config: DeviceConfig; extraConfig?: Record<string, unknown> };
 type DeviceNode = Node<DeviceData, "device">;
 type CableType = "straight-through" | "crossover" | "fiber" | "serial" | "console";
-type CableData = { cableType: CableType; highlighted?: boolean; status?: string; baseLatencyMs?: number; maxCapacityMbps?: number; currentLoadMbps?: number; priorityLoadMbps?: number; qos?: boolean };
+type CableData = { cableType: CableType; highlighted?: boolean; status?: string; baseLatencyMs?: number; maxCapacityMbps?: number; currentLoadMbps?: number; priorityLoadMbps?: number; packetLossPct?: number; qos?: boolean; extraConfig?: Record<string, unknown> };
 type CableEdge = Edge<CableData, "cable">;
 type Snapshot = { nodes: DeviceNode[]; edges: CableEdge[] };
 type ChatEntry = { id: string; role: "user" | "assistant"; text: string };
@@ -66,28 +67,6 @@ const cableOptions: Array<{ value: CableType; label: string; short: string }> = 
   { value: "console", label: "Console", short: "Console" },
 ];
 
-function createScreenshotTopology(): Snapshot {
-  const nodes: DeviceNode[] = [
-    { id: generateUUID(), type: "device", position: { x: 444, y: 112 }, data: { label: "1941 Router", deviceType: "core-router", model: "1941-router", status: "healthy", config: { ...emptyConfig(), ipAddress: "192.168.1.3" } } },
-    { id: generateUUID(), type: "device", position: { x: 429, y: 220 }, data: { label: "2960-24TT Switch", deviceType: "distribution-switch", model: "2960-24tt-switch", status: "healthy", config: emptyConfig() } },
-    { id: generateUUID(), type: "device", position: { x: 762, y: 206 }, data: { label: "PC1", deviceType: "cloud-server", model: "pc-pt", status: "healthy", config: emptyConfig() } },
-    { id: generateUUID(), type: "device", position: { x: 766, y: 322 }, data: { label: "PC2", deviceType: "cloud-server", model: "pc-pt", status: "healthy", config: { ...emptyConfig(), ipAddress: "192.168.1.2" } } },
-    { id: generateUUID(), type: "device", position: { x: 764, y: 431 }, data: { label: "PC3", deviceType: "cloud-server", model: "pc-pt", status: "healthy", config: emptyConfig() } },
-    { id: generateUUID(), type: "device", position: { x: 384, y: 368 }, data: { label: "Smart Load Balancer", deviceType: "load-balancer", model: "smart-load-balancer", status: "healthy", config: emptyConfig() } },
-    { id: generateUUID(), type: "device", position: { x: 263, y: 467 }, data: { label: "Server-PT", deviceType: "cloud-server", model: "server-pt", status: "healthy", config: emptyConfig() } },
-    { id: generateUUID(), type: "device", position: { x: 551, y: 470 }, data: { label: "Server-PT", deviceType: "cloud-server", model: "server-pt", status: "healthy", config: emptyConfig() } },
-  ];
-  const [router, sw, pc1, pc2, pc3, balancer, server1, server2] = nodes as [DeviceNode, DeviceNode, DeviceNode, DeviceNode, DeviceNode, DeviceNode, DeviceNode, DeviceNode];
-  const connect = (source: DeviceNode, target: DeviceNode, cableType: CableType = "straight-through"): CableEdge => ({
-    id: generateUUID(), source: source.id, target: target.id, sourceHandle: "right", targetHandle: "left", type: "cable", animated: false,
-    data: { cableType, status: "active", baseLatencyMs: 1, maxCapacityMbps: 1000, currentLoadMbps: 100, priorityLoadMbps: 20, qos: false },
-  });
-  return { nodes, edges: [
-    connect(router, sw, "crossover"), connect(router, balancer, "crossover"),
-    connect(sw, pc1), connect(sw, pc2), connect(sw, pc3), connect(sw, server2), connect(balancer, server1),
-  ] };
-}
-
 function cableStyle(type: CableType, highlighted = false): React.CSSProperties {
   const color = type === "fiber" ? "var(--cable-fiber)" : type === "serial" ? "var(--cable-serial)" : type === "console" ? "var(--cable-console)" : "var(--cable-copper)";
   return { stroke: color, strokeWidth: highlighted ? 5 : 2.5, strokeDasharray: type === "crossover" ? "9 6" : undefined, filter: highlighted ? "drop-shadow(0 0 5px var(--primary))" : undefined };
@@ -103,13 +82,13 @@ function CableEdgeView({ id, sourceX, sourceY, targetX, targetY, data, markerEnd
   return <BaseEdge id={id} path={path} {...(markerEnd ? { markerEnd } : {})} style={{ ...cableStyle(cableType, Boolean(data?.highlighted || selected)), stroke: data?.status === "offline" ? "#6b7280" : utilizationColor, strokeWidth: selected ? 5 : 3, animation: usage.utilizationPct > 80 ? "pulse 1s infinite" : undefined }} />;
 }
 
-function parseConfiguration(value: unknown, type: BaseDeviceType): Pick<DeviceData, "model" | "config"> {
+function parseConfiguration(value: unknown, type: BaseDeviceType): Pick<DeviceData, "model" | "config" | "extraConfig"> {
   const raw = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
   const model = catalog.some(item => item.model === raw["model"]) ? raw["model"] as DeviceModel : legacyModels[type];
-  return { model, config: { ipAddress: typeof raw["ipAddress"] === "string" ? raw["ipAddress"] : "", subnetMask: typeof raw["subnetMask"] === "string" ? raw["subnetMask"] : "255.255.255.0", defaultGateway: typeof raw["defaultGateway"] === "string" ? raw["defaultGateway"] : "", interfacePorts: typeof raw["interfacePorts"] === "string" ? raw["interfacePorts"] : "GigabitEthernet0/0, GigabitEthernet0/1", httpPort: typeof raw["httpPort"] === "string" ? raw["httpPort"] : "80" } };
+  return { model, config: { ipAddress: typeof raw["ipAddress"] === "string" ? raw["ipAddress"] : "", subnetMask: typeof raw["subnetMask"] === "string" ? raw["subnetMask"] : "255.255.255.0", defaultGateway: typeof raw["defaultGateway"] === "string" ? raw["defaultGateway"] : "", interfacePorts: typeof raw["interfacePorts"] === "string" ? raw["interfacePorts"] : "GigabitEthernet0/0, GigabitEthernet0/1", httpPort: typeof raw["httpPort"] === "string" ? raw["httpPort"] : "80", ...(typeof raw["processingCapacityMbps"] === "number" ? { processingCapacityMbps: raw["processingCapacityMbps"] } : {}) }, extraConfig: raw };
 }
 
-function DeviceNodeCard({ data, selected }: { data: DeviceData; selected?: boolean }) {
+export function DeviceNodeCard({ data, selected }: { data: DeviceData; selected?: boolean }) {
   const Icon = modelIcons[data.model] ?? HardDrive;
   return <div className={cn("min-w-44 border bg-card shadow-lg transition", selected ? "border-primary ring-2 ring-primary/20" : "border-border")}>
     <Handle type="target" position={Position.Left} className="!size-2.5 !border-2 !border-card !bg-primary" />
@@ -163,8 +142,8 @@ function WorkspaceInner() {
   const snapshot = useCallback(() => ({ nodes: structuredClone(nodesRef.current), edges: structuredClone(edgesRef.current) }), []);
   const record = useCallback(() => { setHistory(h => [...h.slice(-39), snapshot()]); setFuture([]); }, [snapshot]);
   const rowsFor = useCallback((next: Snapshot) => ({
-    nodeRows: next.nodes.map(n => ({ id: n.id, user_id: userId, node_type: n.data.deviceType, label: n.data.label, position_x: n.position.x, position_y: n.position.y, status: n.data.status, configuration: { model: n.data.model, ...n.data.config } })),
-    edgeRows: next.edges.map(e => ({ id: e.id, user_id: userId, source_node_id: e.source, target_node_id: e.target, source_handle: e.sourceHandle ?? null, target_handle: e.targetHandle ?? null, status: e.data?.status === "offline" ? "offline" : "active", configuration: { pathType: "cable", cableType: e.data?.cableType ?? "straight-through", base_latency_ms: e.data?.baseLatencyMs ?? 1, max_capacity_mbps: e.data?.maxCapacityMbps ?? 1000, current_load_mbps: e.data?.currentLoadMbps ?? 100, priority_load_mbps: e.data?.priorityLoadMbps ?? 20, qos: e.data?.qos ?? false } })),
+    nodeRows: next.nodes.map(n => ({ id: n.id, user_id: userId, node_type: n.data.deviceType, label: n.data.label, position_x: n.position.x, position_y: n.position.y, status: n.data.status, configuration: { ...n.data.extraConfig, model: n.data.model, ...n.data.config } })),
+    edgeRows: next.edges.map(e => ({ id: e.id, user_id: userId, source_node_id: e.source, target_node_id: e.target, source_handle: e.sourceHandle ?? null, target_handle: e.targetHandle ?? null, status: e.data?.status === "offline" ? "offline" : e.data?.status === "degraded" ? "degraded" : "active", configuration: { ...e.data?.extraConfig, pathType: "cable", cableType: e.data?.cableType ?? "straight-through", ...(typeof e.data?.baseLatencyMs === "number" ? { base_latency_ms: e.data.baseLatencyMs } : {}), ...(typeof e.data?.maxCapacityMbps === "number" ? { max_capacity_mbps: e.data.maxCapacityMbps } : {}), ...(typeof e.data?.currentLoadMbps === "number" ? { current_load_mbps: e.data.currentLoadMbps } : {}), ...(typeof e.data?.priorityLoadMbps === "number" ? { priority_load_mbps: e.data.priorityLoadMbps } : {}), ...(typeof e.data?.packetLossPct === "number" ? { packet_loss_pct: e.data.packetLossPct } : {}), ...(typeof e.data?.qos === "boolean" ? { qos: e.data.qos } : {}) } })),
   }), [userId]);
 
   const syncSnapshot = useCallback((next: Snapshot, removedNodeIds: string[] = [], removedEdgeIds: string[] = []) => {
@@ -210,19 +189,6 @@ function WorkspaceInner() {
     }
   }, [rowsFor, snapshot, userId]);
   useEffect(() => { const save = () => void saveTopology(); window.addEventListener("nexustwin:save", save); return () => window.removeEventListener("nexustwin:save", save); }, [saveTopology]);
-  useEffect(() => {
-    const restore = () => {
-      if (!userId) { toast.error("Sign in before restoring this topology"); return; }
-      if (!window.confirm("Replace the current topology with the 8-device screenshot topology and save it to Supabase?")) return;
-      const previous = snapshot();
-      const restored = createScreenshotTopology();
-      setHistory(history => [...history.slice(-39), previous]); setFuture([]);
-      setNodes(restored.nodes); setEdges(restored.edges);
-      void saveTopology(restored).then(saved => { if (!saved) { setNodes(previous.nodes); setEdges(previous.edges); } });
-    };
-    window.addEventListener("nexustwin:restore-working-topology", restore);
-    return () => window.removeEventListener("nexustwin:restore-working-topology", restore);
-  }, [saveTopology, setEdges, setNodes, snapshot, userId]);
 
   const mapNode = useCallback((r: { id: string; node_type: string; label: string; position_x: number; position_y: number; status: string; configuration: unknown }): DeviceNode => {
     const deviceType = r.node_type as BaseDeviceType; const parsed = parseConfiguration(r.configuration, deviceType);
@@ -230,10 +196,15 @@ function WorkspaceInner() {
   }, []);
   const mapEdge = useCallback((r: { id: string; source_node_id: string; target_node_id: string; source_handle: string | null; target_handle: string | null; status: string; configuration?: unknown }): CableEdge => {
     const raw = r.configuration && typeof r.configuration === "object" && !Array.isArray(r.configuration) ? r.configuration as Record<string, unknown> : {};
-    const metric = (key: string, fallback: number) => { const value = raw[key]; return typeof value === "number" && Number.isFinite(value) ? value : fallback; };
+    const metric = (...keys: string[]) => { const value = keys.map(key => raw[key]).find(item => typeof item === "number" && Number.isFinite(item)); return typeof value === "number" ? value : undefined; };
     const value = raw["cableType"];
     const cableType = cableOptions.some(option => option.value === value) ? value as CableType : "straight-through";
-    return { id: r.id, source: r.source_node_id, target: r.target_node_id, sourceHandle: r.source_handle, targetHandle: r.target_handle, type: "cable", animated: false, data: { cableType, status: r.status, baseLatencyMs: metric("base_latency_ms", 1), maxCapacityMbps: metric("max_capacity_mbps", 1000), currentLoadMbps: metric("current_load_mbps", 100), priorityLoadMbps: metric("priority_load_mbps", 20), qos: raw["qos"] === true } };
+    const baseLatencyMs = metric("base_latency_ms", "latency_ms");
+    const maxCapacityMbps = metric("max_capacity_mbps", "bandwidth_mbps");
+    const currentLoadMbps = metric("current_load_mbps", "currentLoadMbps");
+    const priorityLoadMbps = metric("priority_load_mbps");
+    const packetLossPct = metric("packet_loss_pct");
+    return { id: r.id, source: r.source_node_id, target: r.target_node_id, sourceHandle: r.source_handle, targetHandle: r.target_handle, type: "cable", animated: false, data: { cableType, status: r.status, extraConfig: raw, ...(baseLatencyMs !== undefined ? { baseLatencyMs } : {}), ...(maxCapacityMbps !== undefined ? { maxCapacityMbps } : {}), ...(currentLoadMbps !== undefined ? { currentLoadMbps } : {}), ...(priorityLoadMbps !== undefined ? { priorityLoadMbps } : {}), ...(packetLossPct !== undefined ? { packetLossPct } : {}), ...(typeof raw["qos"] === "boolean" ? { qos: raw["qos"] } : {}) } };
   }, []);
 
   useEffect(() => {
@@ -241,7 +212,8 @@ function WorkspaceInner() {
     void (async () => {
       const { data: auth } = await supabase.auth.getUser(); if (!auth.user || !active) return; setUserId(auth.user.id);
       const [{ data: rows }, { data: links }, { data: chats }] = await Promise.all([supabase.from("network_nodes").select("*").order("created_at"), supabase.from("network_connections").select("*").order("created_at"), supabase.from("chat_messages").select("*").eq("user_id", auth.user.id).order("sequence")]);
-      if (!active) return; setNodes((rows ?? []).map(mapNode)); setEdges((links ?? []).map(mapEdge));
+      if (!active) return;
+      setNodes((rows ?? []).map(mapNode)); setEdges((links ?? []).map(mapEdge));
       if (chats?.length) setMessages(chats.map(r => ({ id: r.id, role: r.role as ChatEntry["role"], text: Array.isArray(r.parts) ? String((r.parts[0] as { text?: string })?.text ?? "") : "" })));
       const pendingUndo = localStorage.getItem(`nexustwin-recommendation-undo-${auth.user.id}`);
       if (pendingUndo) { try { setHistory([JSON.parse(pendingUndo) as Snapshot]); } catch { /* Invalid local snapshot is safely ignored. */ } localStorage.removeItem(`nexustwin-recommendation-undo-${auth.user.id}`); }
@@ -260,7 +232,7 @@ function WorkspaceInner() {
 
   const onDragStart = (e: DragEvent, model: DeviceModel) => { e.dataTransfer.setData("application/nexustwin", model); e.dataTransfer.effectAllowed = "move"; };
   const onDrop = async (e: DragEvent) => { e.preventDefault(); const model = e.dataTransfer.getData("application/nexustwin") as DeviceModel; const item = catalog.find(x => x.model === model); if (!item || !userId) return; record(); const position = screenToFlowPosition({ x: e.clientX, y: e.clientY }); const id = generateUUID(); const next: DeviceNode = { id, type: "device", position, data: { label: item.label, deviceType: item.type, model, status: "healthy", config: emptyConfig() } }; setNodes(n => [...n, next]); setSync("saving"); const { error } = await supabase.from("network_nodes").insert({ id, user_id: userId, node_type: item.type, label: item.label, position_x: position.x, position_y: position.y, configuration: { model, ...next.data.config } }); setSync(error ? "error" : "saved"); };
-  const onConnect = async (connection: Connection) => { if (!userId) return; record(); const id = generateUUID(); const data = { cableType: selectedCable, status: "active", baseLatencyMs: 1, maxCapacityMbps: 1000, currentLoadMbps: 100, priorityLoadMbps: 20, qos: false }; const edge: CableEdge = { ...connection, id, type: "cable", animated: false, data }; setEdges(es => addEdge(edge, es)); setSync("saving"); const { error } = await supabase.from("network_connections").insert({ id, user_id: userId, source_node_id: connection.source, target_node_id: connection.target, source_handle: connection.sourceHandle ?? null, target_handle: connection.targetHandle ?? null, status: "active", configuration: { pathType: "cable", cableType: selectedCable, base_latency_ms: 1, max_capacity_mbps: 1000, current_load_mbps: 100, priority_load_mbps: 20, qos: false } }); setSync(error ? "error" : "saved"); };
+  const onConnect = async (connection: Connection) => { if (!userId) return; record(); const id = generateUUID(); const data = { cableType: selectedCable, status: "active", baseLatencyMs: 1, maxCapacityMbps: 1000, currentLoadMbps: 100, priorityLoadMbps: 20, packetLossPct: 0, qos: false }; const edge: CableEdge = { ...connection, id, type: "cable", animated: false, data }; setEdges(es => addEdge(edge, es)); setSync("saving"); const { error } = await supabase.from("network_connections").insert({ id, user_id: userId, source_node_id: connection.source, target_node_id: connection.target, source_handle: connection.sourceHandle ?? null, target_handle: connection.targetHandle ?? null, status: "active", configuration: { pathType: "cable", cableType: selectedCable, base_latency_ms: 1, max_capacity_mbps: 1000, current_load_mbps: 100, priority_load_mbps: 20, packet_loss_pct: 0, qos: false } }); setSync(error ? "error" : "saved"); };
   const onNodesChange = (changes: NodeChange<DeviceNode>[]) => { const removed = changes.filter(c => c.type === "remove").map(c => c.id); if (removed.length) { record(); if (removed.includes(selectedNodeId ?? "")) setSelectedNodeId(null); } onNodesChangeBase(changes); const ended = changes.find(c => c.type === "position" && c.dragging === false); if (ended) queueMicrotask(() => void syncSnapshot({ nodes: nodesRef.current, edges: edgesRef.current }).catch(() => undefined)); if (removed.length) queueMicrotask(() => void syncSnapshot({ nodes: nodesRef.current, edges: edgesRef.current }, removed).catch(() => undefined)); };
   const onEdgesChange = (changes: EdgeChange<CableEdge>[]) => { const removed = changes.filter(c => c.type === "remove").map(c => c.id); if (removed.length) { record(); if (removed.includes(selectedEdgeId ?? "")) setSelectedEdgeId(null); } onEdgesChangeBase(changes); if (removed.length) queueMicrotask(() => void syncSnapshot({ nodes: nodesRef.current, edges: edgesRef.current }, [], removed).catch(() => undefined)); };
   const chooseCable = (cableType: CableType) => { setSelectedCable(cableType); if (!selectedEdgeId) return; record(); const next = edgesRef.current.map(edge => edge.id === selectedEdgeId ? { ...edge, data: { cableType, highlighted: true } } : edge); setEdges(next); void syncSnapshot({ nodes: nodesRef.current, edges: next }).catch(() => toast.error("Cable type could not be saved")); };
@@ -301,9 +273,9 @@ function WorkspaceInner() {
   const selectedNode = nodes.find(node => node.id === selectedNodeId);
   const selectedEdge = edges.find(edge => edge.id === selectedEdgeId);
   const beginEdit = () => { if (!editingRef.current) { record(); editingRef.current = true; } };
-  const updateSelected = (field: "label" | keyof DeviceConfig, value: string) => { if (!selectedNodeId) return; beginEdit(); setNodes(current => current.map(node => node.id === selectedNodeId ? { ...node, data: { ...node.data, ...(field === "label" ? { label: value } : { config: { ...node.data.config, [field]: value } }) } } : node)); };
+  const updateSelected = (field: "label" | EditableDeviceField, value: string) => { if (!selectedNodeId) return; beginEdit(); setNodes(current => current.map(node => node.id === selectedNodeId ? { ...node, data: { ...node.data, ...(field === "label" ? { label: value } : { config: { ...node.data.config, [field]: value } }) } } : node)); };
   const commitSelected = () => { if (!editingRef.current) return; editingRef.current = false; queueMicrotask(() => void syncSnapshot({ nodes: nodesRef.current, edges: edgesRef.current }).catch(() => toast.error("Device settings could not be saved"))); };
-  const updateSelectedLink = (field: "baseLatencyMs" | "maxCapacityMbps" | "currentLoadMbps" | "priorityLoadMbps", value: number) => {
+  const updateSelectedLink = (field: "baseLatencyMs" | "maxCapacityMbps" | "currentLoadMbps" | "priorityLoadMbps" | "packetLossPct", value: number) => {
     if (!selectedEdgeId || !Number.isFinite(value) || value < 0) return;
     if (!editingRef.current) { record(); editingRef.current = true; }
     const next = edgesRef.current.map(edge => edge.id === selectedEdgeId ? { ...edge, data: { ...(edge.data ?? { cableType: "straight-through" as CableType }), [field]: value } } : edge);
@@ -316,7 +288,7 @@ function WorkspaceInner() {
   };
 
   const duplicateIps = useMemo(() => { const counts = new Map<string, number>(); nodes.forEach(node => { const ip = node.data.config.ipAddress; if (ip) counts.set(ip, (counts.get(ip) ?? 0) + 1); }); return new Set([...counts].filter(([, count]) => count > 1).map(([ip]) => ip)); }, [nodes]);
-  const selectedFields: Array<["label" | keyof DeviceConfig, string]> = selectedNode ? [
+  const selectedFields: Array<["label" | EditableDeviceField, string]> = selectedNode ? [
     ["label", "Device Name"],
     ["ipAddress", selectedNode.data.deviceType === "core-router" ? "Interface IPv4 addresses" : "IP Address"],
     ["subnetMask", "Subnet Mask"],
@@ -389,7 +361,7 @@ function WorkspaceInner() {
         <div className="absolute bottom-4 left-1/2 z-30 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-1 overflow-x-auto border bg-card p-1 shadow-lg" aria-label="Cable selector"><div className="hidden items-center gap-1 border-r px-2 text-[10px] font-semibold uppercase text-muted-foreground sm:flex"><Cable className="size-3" /> Cable</div>{cableOptions.map(option => <TooltipProvider key={option.value}><Tooltip><TooltipTrigger asChild><Button size="sm" variant={selectedCable === option.value ? "secondary" : "ghost"} onClick={() => chooseCable(option.value)} className="shrink-0 px-2" aria-label={option.label}><span className={cn("h-0.5 w-7", option.value === "crossover" && "border-t-2 border-dashed border-cable-copper", option.value === "straight-through" && "bg-cable-copper", option.value === "fiber" && "bg-cable-fiber", option.value === "serial" && "bg-cable-serial", option.value === "console" && "bg-cable-console")} /><span className="hidden lg:inline">{option.short}</span></Button></TooltipTrigger><TooltipContent>{option.label}{selectedEdgeId ? " — apply to selected cable" : ""}</TooltipContent></Tooltip></TooltipProvider>)}</div>
         {loading ? <div className="grid h-full place-items-center text-sm text-muted-foreground">Loading synchronized topology…</div> : <ReactFlow nodes={nodes} edges={edges} nodeTypes={{ device: DeviceNodeCard }} edgeTypes={{ cable: CableEdgeView }} onNodesChange={onNodesChange} onNodeDragStart={record} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeClick={(_, node) => { setSelectedNodeId(node.id); setSelectedEdgeId(null); }} onEdgeClick={(_, edge) => { setSelectedEdgeId(edge.id); setSelectedNodeId(null); setSelectedCable(edge.data?.cableType ?? "straight-through"); }} onPaneClick={() => { setSelectedNodeId(null); setSelectedEdgeId(null); }} onDrop={onDrop} onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }} fitView deleteKeyCode={["Backspace", "Delete"]} colorMode="system" defaultEdgeOptions={{ type: "cable" }}><Background variant={BackgroundVariant.Dots} gap={22} size={1} color="var(--canvas-dot)" /><Controls position="bottom-left" /><MiniMap position="bottom-right" nodeColor="var(--primary)" maskColor="color-mix(in oklch, var(--canvas) 75%, transparent)" /></ReactFlow>}
         {selectedNode && <aside className="absolute inset-y-3 right-3 z-40 flex w-[min(22rem,calc(100%-1.5rem))] flex-col border bg-card shadow-2xl"><div className="flex h-14 items-center justify-between border-b px-4"><div><p className="font-mono text-[9px] uppercase text-primary">Node Properties</p><h2 className="text-sm font-semibold">{selectedNode.data.model.toUpperCase()}</h2></div><Button variant="ghost" size="icon" onClick={() => setSelectedNodeId(null)} aria-label="Close device properties"><X /></Button></div><div className="border-b bg-muted/40 px-4 py-3"><div className="flex items-center gap-2 text-xs"><span className="size-2 rounded-full bg-success" /> Interface ready</div><p className="mt-1 text-[10px] text-muted-foreground">Static IPv4 and port configuration</p></div><div className="flex-1 space-y-5 overflow-y-auto p-4">{selectedFields.map(([field, label]) => { const value = field === "label" ? selectedNode.data.label : selectedNode.data.config[field]; const isRouterIp = field === "ipAddress" && selectedNode.data.deviceType === "core-router"; const invalid = field === "ipAddress" ? Boolean(value) && !validAddressList(value, isRouterIp) : field === "subnetMask" || field === "defaultGateway" ? Boolean(value) && !ipv4Pattern.test(value) : field === "httpPort" ? !/^\d+$/.test(value) || Number(value) < 1 || Number(value) > 65535 : false; const placeholder = field === "label" ? "Device hostname" : field === "subnetMask" ? "255.255.255.0" : field === "interfacePorts" ? "Gi0/0, Gi0/1, Fa0/1" : field === "httpPort" ? "80" : isRouterIp ? "10.0.1.1/24, 10.0.2.1/24" : "192.168.1.10"; return <div className="space-y-2" key={field}><Label htmlFor={`device-${field}`}>{label}</Label><Input id={`device-${field}`} value={value} onChange={e => updateSelected(field, e.target.value)} onBlur={commitSelected} className={cn("font-mono", invalid && "border-destructive focus-visible:ring-destructive")} placeholder={placeholder} />{invalid && <p className="text-xs text-destructive">{field === "httpPort" ? "Enter a port from 1 to 65535." : "Enter valid IPv4 address values."}</p>}{isRouterIp && <p className="text-[10px] text-muted-foreground">{routerLinkOrder ? `Match addresses to links in this order: ${routerLinkOrder}.` : "Connect the router first; enter one address per link."} Add CIDR suffixes such as /24 to set each subnet.</p>}{field === "httpPort" && <p className="text-[10px] text-muted-foreground">The HTTP service port is stored as part of this device configuration.</p>}</div>; })}<div className="border p-3 text-xs text-muted-foreground"><div className="flex justify-between"><span>Model</span><span className="font-mono text-foreground">{selectedNode.data.model}</span></div><div className="mt-2 flex justify-between"><span>Links</span><span className="font-mono text-foreground">{edges.filter(edge => edge.source === selectedNode.id || edge.target === selectedNode.id).length}</span></div></div></div><div className="border-t p-3"><Button className="w-full" onClick={() => { commitSelected(); toast.success("Device configuration saved"); }}><Save /> Save Configuration</Button></div></aside>}
-        {selectedEdge && <aside className="absolute inset-y-3 right-3 z-40 flex w-[min(20rem,calc(100%-1.5rem))] flex-col border bg-card shadow-2xl"><div className="flex h-14 items-center justify-between border-b px-4"><div><p className="font-mono text-[9px] uppercase text-primary">Link Simulation</p><h2 className="text-sm font-semibold">{nodes.find(node => node.id === selectedEdge.source)?.data.label} → {nodes.find(node => node.id === selectedEdge.target)?.data.label}</h2></div><Button variant="ghost" size="icon" onClick={() => setSelectedEdgeId(null)} aria-label="Close link properties"><X /></Button></div><div className="flex-1 space-y-4 p-4">{([ ["baseLatencyMs", "Base latency (ms)"], ["maxCapacityMbps", "Max capacity (Mbps)"], ["currentLoadMbps", "Current load (Mbps)"], ["priorityLoadMbps", "Critical traffic (Mbps)"] ] as const).map(([field, label]) => <div className="space-y-2" key={field}><Label htmlFor={`link-${field}`}>{label}</Label><Input id={`link-${field}`} type="number" min="0" step="any" value={selectedEdge.data?.[field] ?? (field === "baseLatencyMs" ? 1 : field === "maxCapacityMbps" ? 1000 : field === "priorityLoadMbps" ? 20 : 100)} onFocus={() => { if (!editingRef.current) { record(); editingRef.current = true; } }} onChange={event => updateSelectedLink(field, Number(event.target.value))} onBlur={commitSelectedLink} /></div>)}<div className="text-xs text-muted-foreground">Utilization: {calculateLinkMetrics(simulationLinks.find(link => link.id === selectedEdge.id) ?? { id: selectedEdge.id, source: selectedEdge.source, target: selectedEdge.target, status: "active", baseLatencyMs: 1, maxCapacityMbps: 1000, currentLoadMbps: 100 }).utilizationPct.toFixed(1)}% · QoS {selectedEdge.data?.qos ? "enabled" : "disabled"}</div></div></aside>}
+        {selectedEdge && <aside className="absolute inset-y-3 right-3 z-40 flex w-[min(20rem,calc(100%-1.5rem))] flex-col border bg-card shadow-2xl"><div className="flex h-14 items-center justify-between border-b px-4"><div><p className="font-mono text-[9px] uppercase text-primary">Link Properties</p><h2 className="text-sm font-semibold">{nodes.find(node => node.id === selectedEdge.source)?.data.label} → {nodes.find(node => node.id === selectedEdge.target)?.data.label}</h2></div><Button variant="ghost" size="icon" onClick={() => setSelectedEdgeId(null)} aria-label="Close link properties"><X /></Button></div><div className="flex-1 space-y-4 p-4">{([["baseLatencyMs", "Base latency (ms)"], ["maxCapacityMbps", "Bandwidth capacity (Mbps)"], ["currentLoadMbps", "Configured current load (Mbps)"], ["priorityLoadMbps", "Priority load (Mbps)"], ["packetLossPct", "Packet loss (%)"]] as const).map(([field, label]) => <div className="space-y-2" key={field}><Label htmlFor={`link-${field}`}>{label}</Label><Input id={`link-${field}`} type="number" min="0" step="any" value={selectedEdge.data?.[field] ?? ""} placeholder="Unconfigured" onFocus={() => { if (!editingRef.current) { record(); editingRef.current = true; } }} onChange={event => updateSelectedLink(field, Number(event.target.value))} onBlur={commitSelectedLink} /></div>)}<div className="text-xs text-muted-foreground">Modeled utilization: {calculateLinkMetrics(simulationLinks.find(link => link.id === selectedEdge.id) ?? { id: selectedEdge.id, source: selectedEdge.source, target: selectedEdge.target, status: "active", baseLatencyMs: 1, maxCapacityMbps: 1000, currentLoadMbps: 100 }).utilizationPct.toFixed(1)}% · QoS {selectedEdge.data?.qos ? "enabled" : "disabled"}. Missing simulation values use documented defaults.</div></div></aside>}
       </section>
       {assistantPanel !== "closed" && <aside style={{ width: assistantPanel === "full" ? undefined : assistantWidth }} className={cn("glass-panel z-40 flex flex-col border-l transition-[width] duration-200", assistantPanel === "full" ? "fixed inset-3" : "relative w-[min(92vw,36rem)] sm:w-auto")}>
         {assistantPanel === "open" && <div onMouseDown={e => { const startX = e.clientX, startW = assistantWidth; const move = (m: MouseEvent) => setAssistantWidth(Math.min(580, Math.max(320, startW + startX - m.clientX))); const up = () => { window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); }; window.addEventListener("mousemove", move); window.addEventListener("mouseup", up); }} className="absolute -left-1 top-0 z-50 hidden h-full w-2 cursor-col-resize sm:block" />}

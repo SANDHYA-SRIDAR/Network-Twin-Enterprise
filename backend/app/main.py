@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.api.network import router as network_router
 from app.api.scenario import router as scenario_router
+from app.api.failure_simulation import router as failure_simulation_router
 
 app = FastAPI(
     title=settings.project_name,
@@ -21,6 +22,7 @@ app.add_middleware(
 # Include Routers
 app.include_router(network_router, prefix=settings.api_prefix)
 app.include_router(scenario_router, prefix=settings.api_prefix)
+app.include_router(failure_simulation_router, prefix=settings.api_prefix)
 
 @app.get(f"{settings.api_prefix}/health")
 async def health_check():

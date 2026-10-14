@@ -4,41 +4,38 @@ Last reviewed: 2026-10-14
 
 ## Current architecture
 
-- React, TypeScript, React Flow topology editor with a FastAPI validation/scenario backend.
-- Supabase Auth and Postgres are the canonical store for each user's topology. `network_nodes` stores devices and `network_connections` stores links.
-- The topology editor computes network metrics locally from the active graph. This is a mathematical simulation; it does not contact Mininet, a VM, Docker, or live network devices.
+- React, TypeScript, Vite, React Flow and Supabase Auth/Postgres power the existing topology workspace and Scenario Studio.
+- `network_nodes` and `network_connections` remain the canonical saved topology tables. The failure simulation reads them through the authenticated user's Supabase JWT, so existing RLS policies continue to apply.
+- FastAPI now provides a deterministic analytical failure simulation and modernization API. Results are labelled `simulated`; this feature does not contact Mininet, VMs, or live network devices.
 
-## Topology persistence
+## Network failure simulation and modernization
 
-- **IMPLEMENTED, NOT VERIFIED AGAINST A LIVE SUPABASE PROJECT:** Save Topology reads the current node and link ids, upserts the current graph, then removes rows absent from the canvas. RLS scopes these queries to the authenticated user.
-- Node type, label, canvas position, status and device settings are stored on `network_nodes`.
-- Link endpoints, handles and cable type are stored on `network_connections`. Simulation parameters (`base_latency_ms`, `max_capacity_mbps`, `current_load_mbps`, `priority_load_mbps`, and `qos`) are stored inside its existing `configuration` JSONB column; no schema change is needed for the SQL supplied by the user.
-- Simulation failures are stored as `offline`, which is accepted by the supplied status CHECK constraints. The app maps this to a failed element for routing calculations.
-- Editing, adding and deleting elements currently also writes through to Supabase. Save Topology is an explicit full-graph reconciliation.
+- **IMPLEMENTED; backend VERIFIED; live Supabase/browser integration NOT VERIFIED:** Authenticated topology retrieval, scenario catalogue, failure simulation, modernization proposal, and experiment retrieval are implemented under `/api/failure-simulation`.
+- The authenticated `/failure-simulation` page loads the user's current topology and retains its node/link identifiers and positions. It shares the Scenario Studio scenario definitions, displays a baseline, failure view with playback, modernization candidate, assumptions, metrics and three-stage comparison.
+- The engine supports configured link and device faults, traffic increases, capacity changes, redundancy, segment isolation, capacity increase and cloud migration scenarios. Its route choice and metrics are deterministic for the same input.
+- Modernization produces a candidate snapshot and persists the experiment only; it does not alter the saved topology. The original changes only through the existing explicit topology save workflow.
+- Simulation experiment storage migration: `supabase/migrations/20261014100000_create_simulation_experiments.sql`. It defines owner-scoped RLS. Apply this migration before using experiment persistence.
+- The backend needs `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` (or the supported publishable-key alias) to validate the user's session and query their RLS-scoped topology.
+- The former screenshot-based “Restore Working Topology” action has been removed. The screenshot is not used as application data; restore the actual saved Supabase topology through the authenticated workflow.
 
-## Mathematical simulation
+## Simulation formulas and assumptions
 
-- **IMPLEMENTED, NOT VERIFIED:** Dijkstra routing excludes offline nodes and links, with congestion-adjusted latency as its edge weight.
-- Utilization, latency, throughput and packet loss are computed in `src/lib/network-simulation.ts`.
-- The topology workspace provides controls for device/link failure, traffic spikes, and a load balancing/QoS model. The link inspector edits latency, capacity, total load and critical traffic load. Link colors reflect utilization.
-- A Restore Working Topology action can rebuild the 8-device, 7-link layout from the user's screenshot and save it through the canonical Supabase topology tables. Device positions and crossover link choices are reconstructed approximately from the image; this restore action has not been verified in a live Supabase session.
-- Live Network Monitor reports a computed endpoint path, latency, throughput, packet loss and mean link utilization.
-- These metrics are synthetic by design, not measured telemetry. QoS reserves a modeled critical traffic load for the priority latency metric; it is not a packet-level QoS scheduler.
-- Scenario Studio loads and converts the authenticated user's Supabase graph for its modeled scenario request; it no longer submits a hard-coded sample graph.
-
-## Legacy live-network integration
-
-- Mininet telemetry polling, the frontend deploy action, and the backend Mininet/deployment/SSH API path have been removed from the active application. The FastAPI app exposes health, network validation, and modeled scenario endpoints.
-- Historical VM/Mininet verification notes from earlier project work are not evidence for the current simulator and are intentionally not carried forward here.
+- Shortest paths use Dijkstra with configured link latency plus serialization and an M/M/1-style queue-delay estimate.
+- Missing link capacity, latency and packet-loss configuration are surfaced as assumptions and explicitly defaulted in the analytical model (1000 Mbps, 1 ms and 0% respectively).
+- Offered traffic determines utilization; achieved throughput is capped by route capacity. Packet delivery incorporates configured loss and failed/unreachable routes.
+- This is a deterministic mathematical model, not packet-level emulation or measured network telemetry. Recommendation selection is rule-based, not an LLM claim.
 
 ## Validation evidence
 
-- `node_modules/.bin/tsc --noEmit --pretty false` completed without reported TypeScript errors.
-- `python -m unittest discover -s tests -p test_scenario_engine.py` (from `backend/`) passed, and `python -m compileall -q backend/app` completed.
-- A Node smoke check selected a primary path, rerouted after node failure, returned 25% loss at 150% utilization, and kept modeled critical traffic latency low with QoS enabled.
-- `npm run build` is **NOT VERIFIED**: the local Windows environment failed while loading the Tailwind native module (`spawn EPERM`, `UNLOADABLE_DEPENDENCY`). This prevented Vite from compiling the app, so UI integration remains unverified.
-- No live Supabase credentials/session were exercised in this review. Persistence behavior is confirmed from source only; a successful toast in a real session is still needed to prove the user's Supabase project accepts the writes.
+- `python -m unittest discover -s tests -p "test_*.py"` from `backend/`: **15 tests passed**, including alternate/no route, device failure, traffic congestion, bandwidth changes, redundancy, missing values and API auth/catalog checks.
+- `python -m compileall -q app` from `backend/`: passed.
+- `git diff --check`: passed.
+- TypeScript type-check was run; it returned no diagnostics, though the local process did not provide an exit status on its first invocation. Frontend build and browser runtime are **NOT VERIFIED**.
+- Live Supabase migration, authenticated API calls and persistence are **NOT VERIFIED** in this environment because no live project/session was exercised.
 
-## Not implemented
+## Known limitations / not implemented
 
-- Packet-level traffic simulation, real queue models, real measured telemetry, machine-learning prediction, and persistence transactions across node/link changes.
+- The analytical playback animates calculated route/link steps; it is not real-time packet transmission.
+- Queueing uses a documented approximation, not a packet-level queue simulator. Detailed time-series telemetry is not persisted separately.
+- Modernization candidates are limited to transformations supported by the current graph model. They are proposals, not deployed changes.
+- No claim of measured performance improvement or machine-learning prediction is made.

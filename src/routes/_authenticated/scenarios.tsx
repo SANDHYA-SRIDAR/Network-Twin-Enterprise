@@ -5,17 +5,9 @@ import { AppShell } from '@/components/network/app-shell';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { runScenario, type ScenarioType } from '@/lib/scenario';
+import { runScenario, SCENARIO_OPTIONS, type ScenarioType } from '@/lib/scenario';
 import { supabase } from '@/integrations/supabase/custom-client';
 import { convertReactFlowToNetwork } from '@/lib/network-schema';
-
-const scenarioOptions: { type: ScenarioType; title: string; description: string }[] = [
-  { type: 'link_failure', title: 'Link failure', description: 'Fail a primary circuit and assess failover resilience.' },
-  { type: 'traffic_increase', title: 'Traffic increase', description: 'Model a higher user and app demand profile.' },
-  { type: 'bandwidth_change', title: 'Bandwidth change', description: 'Rebalance WAN and service policy for capacity changes.' },
-  { type: 'redundancy_add', title: 'Redundancy add', description: 'Add redundant pathing for resilience planning.' },
-  { type: 'device_failure', title: 'Device failure', description: 'Test critical service outage behavior.' },
-];
 
 export const Route = createFileRoute('/_authenticated/scenarios')({
   component: ScenarioStudio,
@@ -66,7 +58,7 @@ function ScenarioStudio() {
   }, []);
 
   const selectedScenario = useMemo(
-    () => scenarioOptions.find((option) => option.type === selectedType) ?? scenarioOptions[0]!,
+    () => SCENARIO_OPTIONS.find((option) => option.type === selectedType) ?? SCENARIO_OPTIONS[0]!,
     [selectedType],
   );
 
@@ -113,7 +105,7 @@ function ScenarioStudio() {
                 <CardDescription>Choose the condition you want the engine to evaluate.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
-                {scenarioOptions.map((item) => (
+                {SCENARIO_OPTIONS.map((item) => (
                   <button
                     key={item.type}
                     type="button"

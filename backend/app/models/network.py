@@ -78,9 +78,9 @@ class LinkDefinition(BaseModel):
     source_interface_id: Optional[str] = None
     target_interface_id: Optional[str] = None
     cable_type: CableType = "straight-through"
-    bandwidth_mbps: float = 1000.0
-    delay_ms: float = 1.0
-    packet_loss_pct: float = 0.0
+    bandwidth_mbps: Optional[float] = None
+    delay_ms: Optional[float] = None
+    packet_loss_pct: Optional[float] = None
     status: str = "active"
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
