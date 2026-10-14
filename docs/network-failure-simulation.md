@@ -17,7 +17,7 @@ SUPABASE_URL=https://<project-ref>.supabase.co
 SUPABASE_PUBLISHABLE_KEY=<project-publishable-or-anon-key>
 ```
 
-The value is the public project key, not a service-role key. Requests use the signed-in user's bearer token, so RLS applies to topology reads and experiment writes. During local development, FastAPI reads `backend/.env` first and falls back to the repository-root `.env`; set `VITE_API_URL` to the reachable FastAPI address when it is not `http://127.0.0.1:8003`.
+The value is the public project key, not a service-role key. Requests use the signed-in user's bearer token, so RLS applies to topology reads and experiment writes. During local development, FastAPI reads `backend/.env` first and falls back to the repository-root `.env`; Vite proxies same-origin `/api` requests to `http://127.0.0.1:8003`, avoiding browser CORS. For a deployed frontend with a separately hosted API, set `VITE_API_URL` to the reachable FastAPI address.
 
 ## Run locally
 

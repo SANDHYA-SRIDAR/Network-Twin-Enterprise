@@ -76,7 +76,7 @@ async function request<T>(path: string, accessToken: string, init?: RequestInit)
       headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json', ...init?.headers },
     });
   } catch (error) {
-    if (error instanceof TypeError) throw new Error(`Cannot reach the Failure Simulation API at ${API_URL}. Start the FastAPI backend on port 8003 and set VITE_API_URL to its reachable address.`);
+    if (error instanceof TypeError) throw new Error(`Cannot reach the Failure Simulation API at ${API_URL || 'the current frontend origin'}. Start FastAPI on port 8003; local Vite development proxies /api automatically.`);
     throw error;
   }
   if (!response.ok) {
