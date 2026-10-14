@@ -23,6 +23,18 @@ class FailureSimulationApiTests(unittest.TestCase):
         ids = {item["id"] for item in response.json()["scenarios"]}
         self.assertEqual(ids, {"link_failure", "traffic_increase", "bandwidth_change", "redundancy_add", "device_failure", "segment_isolation", "capacity_increase", "cloud_migration"})
 
+    def test_cors_allows_local_vite_origin_and_auth_header(self):
+        response = self.client.options(
+            "/api/failure-simulation/topology",
+            headers={
+                "Origin": "http://localhost:8080",
+                "Access-Control-Request-Method": "GET",
+                "Access-Control-Request-Headers": "authorization,content-type",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("access-control-allow-origin"), "http://localhost:8080")
+
 
 if __name__ == "__main__":
     unittest.main()

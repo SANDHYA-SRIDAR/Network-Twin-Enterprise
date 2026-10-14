@@ -15,7 +15,6 @@ export const Route = createFileRoute('/_authenticated/scenarios')({
 
 function ScenarioStudio() {
   const [selectedType, setSelectedType] = useState<ScenarioType>('traffic_increase');
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [baseline, setBaseline] = useState<any>(null);
   const [loadingTopology, setLoadingTopology] = useState(true);
@@ -63,7 +62,6 @@ function ScenarioStudio() {
 
   const executeScenario = async () => {
     if (!baseline?.nodes?.length) { setError('Add and save devices in Topology before running a scenario.'); return; }
-    setBusy(true);
     setError(null);
     try {
       if (baseline.nodes.length < 2) throw new Error('Add at least two saved devices so the failure simulation can evaluate a traffic flow.');
@@ -89,8 +87,6 @@ function ScenarioStudio() {
       window.location.assign(`/failure-simulation?${params.toString()}`);
     } catch (runError) {
       setError(runError instanceof Error ? runError.message : 'Could not open failure simulation.');
-    } finally {
-      setBusy(false);
     }
   };
 
@@ -132,8 +128,8 @@ function ScenarioStudio() {
                     </div>
                   </button>
                 ))}
-                <Button className="mt-4 w-full" onClick={executeScenario} disabled={busy || loadingTopology || !baseline?.nodes?.length}>
-                  {loadingTopology ? 'Loading saved topology…' : busy ? 'Simulating…' : 'Run scenario'}
+                <Button className="mt-4 w-full" onClick={executeScenario} disabled={loadingTopology || !baseline?.nodes?.length}>
+                  {loadingTopology ? 'Loading saved topology…' : 'Run scenario'}
                 </Button>
                 {!loadingTopology && !baseline?.nodes?.length && <p className="text-sm text-muted-foreground">Save a topology with at least one device before running scenarios.</p>}
                 {error && <p className="text-sm text-destructive">{error}</p>}
