@@ -72,7 +72,7 @@ class NetworkSchemaTests(unittest.TestCase):
                 ),
             ],
             links=[
-                LinkDefinition(id="l1", source_node_id="n1", target_node_id="n1", cable_type="straight-through", bandwidth_mbps=0, delay_ms=-1, packet_loss_pct=101)
+                LinkDefinition(id="l1", source_node_id="n1", target_node_id="n1", cable_type="straight-through", bandwidth_mbps=1000, delay_ms=1, packet_loss_pct=0)
             ],
         )
         errors = validate_network_definition(network)

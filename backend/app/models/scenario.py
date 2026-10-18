@@ -31,6 +31,7 @@ class ScenarioRequest(BaseModel):
     name: str = "Scenario analysis"
     description: str = ""
     baseline: NetworkDefinition
+    traffic: Dict[str, Any]
     scenario: ScenarioMutation
     assumptions: Dict[str, Any] = Field(default_factory=dict)
 

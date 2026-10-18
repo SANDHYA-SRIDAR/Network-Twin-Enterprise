@@ -3,7 +3,7 @@ import unittest
 from fastapi import HTTPException
 
 from app.engines.analytical_simulator import apply_scenario, evaluate, run_experiment, run_modernization
-from app.models.failure_simulation import TrafficDemand
+from app.models.failure_simulation import TrafficDemand, ExperimentModernizeRequest
 from app.models.network import LinkDefinition, NetworkDefinition, NodeDefinition
 
 
@@ -32,6 +32,80 @@ class AnalyticalSimulatorTests(unittest.TestCase):
         self.assertEqual(self.network.links[1].status, "active")
         self.assertTrue(result["baseline_metrics"]["flow_connected"])
 
+    def test_retain_score_one_keeps_fault_isolated_and_does_not_claim_improvement(self):
+        baseline_before = self.network.model_dump()
+        result = run_experiment(self.network, "link_failure", {"link_id": "primary"}, self.traffic)
+        failed = NetworkDefinition.model_validate(result["failed_topology"])
+        failed_before = failed.model_dump()
+        criteria = ExperimentModernizeRequest(weights={"performance": 0, "resilience": 0, "feasibility": 0, "cost": 1})
+        proposed = run_modernization(self.network, failed, "link_failure", {"link_id": "primary"}, self.traffic, result["failed_metrics"], [], criteria)
+        proposal = proposed["modernization"]
+        self.assertEqual(proposal["selected_strategy_id"], "retain")
+        self.assertEqual(proposal["candidates"][0]["score"], 1)
+        self.assertEqual(proposed["modernized_topology"], result["failed_topology"])
+        self.assertEqual(proposed["modernized_metrics"]["route_link_ids"], ["pc-r1", "alternate"])
+        self.assertEqual(proposal["disabled_link_ids"], ["primary"])
+        self.assertEqual(proposal["repaired_link_ids"], [])
+        self.assertTrue(proposal["resolved"])  # Target attainment is not improvement.
+        self.assertFalse(proposal["performance_improved"])
+        self.assertEqual(proposal["service_outcome"], "Service maintained; no additional performance gain predicted")
+        self.assertIn("not been repaired or removed", proposal["summary"])
+        self.assertIn("alternate", proposal["recommendation"]["rationale"])
+        self.assertTrue(any("retains the outage" in text for text in proposal["recommendation"]["trade_offs"]))
+        self.assertEqual(self.network.model_dump(), baseline_before)
+        self.assertEqual(failed.model_dump(), failed_before)
+
+    def test_selected_repair_restores_candidate_link_and_recalculates_service(self):
+        self.network.links = self.network.links[:3]
+        result = run_experiment(self.network, "link_failure", {"link_id": "primary"}, self.traffic)
+        failed = NetworkDefinition.model_validate(result["failed_topology"])
+        proposed = run_modernization(self.network, failed, "link_failure", {"link_id": "primary"}, self.traffic, result["failed_metrics"], [], ExperimentModernizeRequest(allow_new_links=False))
+        self.assertEqual(proposed["modernization"]["selected_strategy_id"], "repair")
+        self.assertEqual(proposed["modernization"]["repaired_link_ids"], ["primary"])
+        self.assertEqual(proposed["modernization"]["disabled_link_ids"], [])
+        self.assertTrue(proposed["modernization"]["performance_improved"])
+        candidate = NetworkDefinition.model_validate(proposed["modernized_topology"])
+        self.assertEqual(next(e.status for e in candidate.links if e.id == "primary"), "active")
+        self.assertEqual(next(e.status for e in failed.links if e.id == "primary"), "down")
+        actual = evaluate(candidate, self.traffic, set(), "modernized")["metrics"]
+        self.assertEqual(proposed["modernized_metrics"], actual)
+        self.assertEqual(actual["failed_links"], 0)
+        self.assertGreater(actual["throughput_mbps"], result["failed_metrics"]["throughput_mbps"])
+
+    def test_capacity_and_route_candidates_use_their_own_graph_metrics(self):
+        result = run_experiment(self.network, "bandwidth_change", {"link_id": "primary", "bandwidth_mbps": 5}, self.traffic)
+        failed = NetworkDefinition.model_validate(result["failed_topology"])
+        proposed = run_modernization(self.network, failed, "bandwidth_change", {"link_id": "primary"}, self.traffic, result["failed_metrics"], [])
+        for candidate in proposed["modernization"]["candidates"]:
+            with self.subTest(strategy=candidate["id"]):
+                graph = NetworkDefinition.model_validate(candidate["topology"])
+                self.assertEqual(candidate["metrics"], evaluate(graph, self.traffic, set(), "modernized")["metrics"])
+        targeted = next(c for c in proposed["modernization"]["candidates"] if c["id"] == "targeted")
+        self.assertGreater(targeted["metrics"]["throughput_mbps"], result["failed_metrics"]["throughput_mbps"])
+
+    def test_no_alternate_or_allowed_changes_never_invents_recovery(self):
+        self.network.links = self.network.links[:3]
+        result = run_experiment(self.network, "link_failure", {"link_id": "primary"}, self.traffic)
+        failed = NetworkDefinition.model_validate(result["failed_topology"])
+        proposed = run_modernization(self.network, failed, "link_failure", {"link_id": "primary"}, self.traffic, result["failed_metrics"], [], ExperimentModernizeRequest(allow_new_links=False, allow_repair=False, max_change_units=0))
+        self.assertEqual(proposed["modernization"]["selected_strategy_id"], "retain")
+        self.assertFalse(proposed["modernization"]["performance_improved"])
+        self.assertFalse(proposed["modernization"]["resolved"])
+        self.assertEqual(proposed["modernized_metrics"]["route_link_ids"], [])
+        self.assertEqual(proposed["modernized_metrics"]["throughput_mbps"], 0)
+        self.assertEqual(proposed["modernization"]["service_outcome"], "No operational route; no recovery predicted")
+
+    def test_older_saved_retained_proposal_gets_honest_display_without_mutation(self):
+        from copy import deepcopy
+        from app.api.failure_simulation import _experiment_result
+        result = run_experiment(self.network, "link_failure", {"link_id": "primary"}, self.traffic)
+        row = {"id": result["experiment_id"], "scenario_id": "link_failure", "engine_version": result["engine_version"], "topology_fingerprint": "test", "baseline_snapshot": result["baseline_topology"], "failure_snapshot": result["failed_topology"], "modernized_snapshot": result["failed_topology"], "proposal": {"resolved": True, "summary": "Retain surviving routes"}, "metrics": {"baseline": result["baseline_metrics"], "failure": result["failed_metrics"], "modernized": result["failed_metrics"]}}
+        before = deepcopy(row)
+        response = _experiment_result(row)
+        self.assertEqual(response["modernization"]["service_outcome"], "Service maintained; no additional performance gain predicted")
+        self.assertIn("isolated and red", response["modernization"]["summary"])
+        self.assertEqual(row, before)
+
     def test_link_failure_without_alternate_drops_flow_then_adds_candidate(self):
         simple = self.network.model_copy(deep=True)
         simple.links = simple.links[:3]
@@ -39,7 +113,7 @@ class AnalyticalSimulatorTests(unittest.TestCase):
         self.assertFalse(result["failed_metrics"]["flow_connected"])
         failed = NetworkDefinition.model_validate(result["failed_topology"])
         modernized = run_modernization(simple, failed, "link_failure", {"link_id": "primary"}, self.traffic, result["failed_metrics"], result["assumptions"])
-        candidate = NetworkDefinition.model_validate(modernized["modernized_topology"])
+        candidate = NetworkDefinition.model_validate(next(c["topology"] for c in modernized["modernization"]["candidates"] if c["id"] == "targeted"))
         self.assertTrue(modernized["modernization"]["resolved"])
         self.assertGreater(len(modernized["modernization"]["recommendation"]["implementation_steps"]), 0)
         self.assertTrue(any(link.metadata.get("candidate") for link in candidate.links))
@@ -49,7 +123,7 @@ class AnalyticalSimulatorTests(unittest.TestCase):
         result = run_experiment(self.network, "device_failure", {"node_id": "r1"}, self.traffic)
         failed = NetworkDefinition.model_validate(result["failed_topology"])
         modernized = run_modernization(self.network, failed, "device_failure", {"node_id": "r1"}, self.traffic, result["failed_metrics"], result["assumptions"])
-        candidate = NetworkDefinition.model_validate(modernized["modernized_topology"])
+        candidate = NetworkDefinition.model_validate(next(c["topology"] for c in modernized["modernization"]["candidates"] if c["id"] == "targeted"))
         self.assertEqual(next(node for node in candidate.nodes if node.id == "r1").status, "down")
         replacement = next(node for node in candidate.nodes if node.id.startswith("candidate:"))
         self.assertEqual(replacement.status, "active")
@@ -57,6 +131,8 @@ class AnalyticalSimulatorTests(unittest.TestCase):
 
     def test_traffic_surge_calculates_congestion_and_capacity_candidate(self):
         result = run_experiment(self.network, "traffic_increase", {"factor": 10}, self.traffic)
+        self.assertEqual(result["baseline_metrics"]["offered_traffic_mbps"], 10)
+        self.assertEqual(result["baseline_metrics"]["queueing_status"], "estimated")
         self.assertEqual(result["failed_metrics"]["offered_traffic_mbps"], 100)
         self.assertGreater(result["failed_metrics"]["congested_links"], 0)
         failed = NetworkDefinition.model_validate(result["failed_topology"])

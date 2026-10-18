@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from ipaddress import IPv4Address, IPv4Interface, IPv4Network
+from ipaddress import IPv4Address, IPv4Network
+import math
 from typing import Iterable, List
 
 from app.models.network import (
@@ -32,6 +33,9 @@ def validate_network_definition(network: NetworkDefinition) -> List[ValidationIs
     allocated_ips: dict[str, str] = {}
 
     for node in network.nodes:
+        for key, value in node.resources.items():
+            if not math.isfinite(value) or value < 0:
+                issues.append(_make_issue(f"nodes.{node.id}.resources.{key}", "invalid_resource", "Resource values must be finite and nonnegative."))
         if node.id in seen_node_ids:
             issues.append(_make_issue(f"nodes[{node.id}]", "duplicate_node_id", f"Duplicate node id '{node.id}' detected."))
         else:
@@ -47,9 +51,10 @@ def validate_network_definition(network: NetworkDefinition) -> List[ValidationIs
             if iface.ip_configuration:
                 ip_value = iface.ip_configuration.ip_address
                 mask_value = iface.ip_configuration.subnet_mask
-                if ip_value in allocated_ips:
+                address_active = node.status not in {"down", "offline", "failed", "unavailable"}
+                if address_active and ip_value in allocated_ips:
                     issues.append(_make_issue(f"nodes.{node.id}.interfaces.{iface.id}.ip_configuration.ip_address", "duplicate_ip", f"IP address '{ip_value}' is already assigned to '{allocated_ips[ip_value]}'."))
-                else:
+                elif address_active:
                     allocated_ips[ip_value] = f"{node.id}:{iface.id}"
                 try:
                     network_obj = _network_for_ip(ip_value, mask_value)

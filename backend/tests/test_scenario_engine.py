@@ -28,10 +28,10 @@ class ScenarioEngineTests(unittest.TestCase):
         )
 
     def test_link_failure_scenario_keeps_baseline_and_reports_risk(self):
-        result = ScenarioEngine.run_scenario(self.network, {"type": "link_failure", "node_id": "r1", "target": "pc1"})
+        result = ScenarioEngine.run_scenario(self.network, {"type": "link_failure", "link_id": "l1"}, {"source_node_id": "r1", "target_node_id": "pc1", "offered_mbps": 10})
         self.assertEqual(result["status"], "completed")
-        self.assertGreater(result["summary"]["risk_score"], 0)
-        self.assertLess(result["summary"]["service_redundancy"], 1.0)
+        self.assertFalse(result["summary"]["flow_connected"])
+        self.assertIsNone(result["summary"]["service_redundancy"])
         self.assertEqual(result["baseline"]["names"][0], "Baseline")
 
 

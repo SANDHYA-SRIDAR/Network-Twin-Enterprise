@@ -1,0 +1,65 @@
+{
+  "topology": {
+    "id": "example-office",
+    "version": "1",
+    "name": "Configured analytical example (not measured)",
+    "nodes": [
+      {
+        "id": "client",
+        "name": "Client",
+        "device_type": "pc"
+      },
+      {
+        "id": "router",
+        "name": "Core router",
+        "device_type": "router"
+      },
+      {
+        "id": "server",
+        "name": "Service",
+        "device_type": "server"
+      }
+    ],
+    "links": [
+      {
+        "id": "access",
+        "source_node_id": "client",
+        "target_node_id": "router",
+        "bandwidth_mbps": 1000,
+        "delay_ms": 1,
+        "packet_loss_pct": 0
+      },
+      {
+        "id": "uplink",
+        "source_node_id": "router",
+        "target_node_id": "server",
+        "bandwidth_mbps": 200,
+        "delay_ms": 2,
+        "packet_loss_pct": 0
+      }
+    ]
+  },
+  "scenario_type": "link_failure",
+  "parameters": {
+    "link_id": "uplink"
+  },
+  "traffic": {
+    "source_node_id": "client",
+    "target_node_id": "server",
+    "offered_mbps": 100,
+    "packet_size_bytes": 1500,
+    "duration_seconds": 60
+  },
+  "criteria": {
+    "weights": {
+      "performance": 0.4,
+      "resilience": 0.3,
+      "feasibility": 0.2,
+      "cost": 0.1
+    },
+    "max_change_units": 20,
+    "latency_target_ms": 50,
+    "allow_new_links": true,
+    "allow_repair": true
+  }
+}

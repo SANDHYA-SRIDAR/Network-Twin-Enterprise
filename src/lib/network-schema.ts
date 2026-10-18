@@ -1,80 +1,9 @@
-export type DeviceType = 'router' | 'switch' | 'hub' | 'access_point' | 'pc' | 'server' | 'load_balancer';
-export type InterfaceType = 'ethernet' | 'serial' | 'console';
-export type CableType = 'straight-through' | 'crossover' | 'fiber' | 'serial' | 'console';
-
-export type IpConfiguration = {
-  ip_address: string;
-  subnet_mask?: string;
-  prefix_length?: number;
-  gateway?: string | null;
-};
-
-export type InterfaceDefinition = {
-  id: string;
-  name: string;
-  type?: InterfaceType;
-  status?: string;
-  bandwidth_mbps?: number | null;
-  ip_configuration?: IpConfiguration | null;
-  mac_address?: string | null;
-  metadata?: Record<string, unknown>;
-};
-
-export type NodeDefinition = {
-  id: string;
-  name: string;
-  device_type: DeviceType;
-  role?: string;
-  status?: string;
-  interfaces?: InterfaceDefinition[];
-  resources?: Record<string, number>;
-  security_zone?: string | null;
-  metadata?: Record<string, unknown>;
-};
-
-export type LinkDefinition = {
-  id: string;
-  source_node_id: string;
-  target_node_id: string;
-  source_interface_id?: string | null;
-  target_interface_id?: string | null;
-  cable_type?: CableType;
-  bandwidth_mbps?: number;
-  delay_ms?: number;
-  packet_loss_pct?: number;
-  status?: string;
-  metadata?: Record<string, unknown>;
-};
-
-export type RoutingConfiguration = {
-  static_routes?: Array<Record<string, string>>;
-  default_gateway?: string | null;
-};
-
-export type SecurityConfiguration = {
-  zone?: string;
-  segmentation?: string[];
-  firewall_rules?: string[];
-};
-
-export type SimulationConfiguration = {
-  traffic_profile?: string;
-  scenario_id?: string | null;
-  experiment_id?: string | null;
-  duration_seconds?: number;
-};
-
-export type NetworkDefinition = {
-  version?: string;
-  name: string;
-  description?: string;
-  nodes: NodeDefinition[];
-  links?: LinkDefinition[];
-  routing?: RoutingConfiguration;
-  security?: SecurityConfiguration;
-  simulation?: SimulationConfiguration;
-  metadata?: Record<string, unknown>;
-};
+import type { NetworkDefinition, NodeDefinition, LinkDefinition, InterfaceDefinition } from './network-contract';
+export type { NetworkDefinition, NodeDefinition, LinkDefinition, InterfaceDefinition, RoutingConfiguration, SecurityConfiguration, SimulationConfiguration } from './network-contract';
+export type { IPConfiguration as IpConfiguration } from './network-contract';
+export type DeviceType = NodeDefinition['device_type'];
+export type CableType = NonNullable<LinkDefinition['cable_type']>;
+export type InterfaceType = NonNullable<InterfaceDefinition['type']>;
 
 export type ValidationIssue = {
   path: string;
@@ -232,7 +161,7 @@ export function convertReactFlowToNetwork(nodes: ReactFlowNodeLike[], edges: Rea
     nodes: nodes.map((node) => {
       const model = node.data?.model;
       const mappedType = deviceTypeMap[node.data?.deviceType ?? 'switch'] ?? 'switch';
-      const deviceType = model === 'pc-pt' ? 'pc' : model === 'server-pt' ? 'server' : mappedType;
+      const deviceType = model === 'pc-pt' ? 'pc' : model === 'server-pt' ? 'server' : model === 'hub-pt' ? 'hub' : model === 'accesspoint-pt' ? 'access_point' : mappedType;
       const config = node.data?.config ?? {};
       const rawIps = String(config['ipAddress'] ?? '').split(',').map((value) => value.trim()).filter(Boolean);
       const ports = String(config['interfacePorts'] ?? '').split(',').map((value) => value.trim()).filter(Boolean);
@@ -275,11 +204,10 @@ export function convertReactFlowToNetwork(nodes: ReactFlowNodeLike[], edges: Rea
     }),
     links: edges.map((edge) => {
       const interfaceId = (nodeId: string, handle: string | null | undefined) => {
-        if (handle) return handle;
-        const node = nodes.find((item) => item.id === nodeId);
-        if (deviceTypeMap[node?.data?.deviceType ?? ''] !== 'router') return null;
-        const linkIndex = edges.filter((item) => item.source === nodeId || item.target === nodeId).findIndex((item) => item.id === edge.id);
-        return `${nodeId}-if${linkIndex}`;
+        const node = nodes.find(item => item.id === nodeId);
+        const count = String(node?.data?.config?.['ipAddress'] ?? '').split(',').filter(value => value.trim()).length;
+        // React Flow's visual handles are not physical interface IDs.
+        return handle && Array.from({ length: count }, (_, i) => `${nodeId}-if${i}`).includes(handle) ? handle : null;
       };
       return {
         id: edge.id,
@@ -298,7 +226,7 @@ export function convertReactFlowToNetwork(nodes: ReactFlowNodeLike[], edges: Rea
         },
       };
     }),
-    routing: { static_routes: [], default_gateway: '10.0.0.1' },
+    routing: { static_routes: [] },
     security: { zone: 'default', segmentation: [], firewall_rules: [] },
     simulation: { traffic_profile: 'baseline', duration_seconds: 300 },
     metadata: { source: 'react-flow' },
@@ -320,8 +248,8 @@ export function convertNetworkToReactFlow(network: NetworkDefinition) {
       data: {
         label: node.name,
         deviceType: node.device_type === 'router' ? 'core-router' : node.device_type === 'switch' ? 'distribution-switch' : node.device_type === 'load_balancer' ? 'load-balancer' : 'cloud-server',
-        model: node.metadata?.['model'] ?? node.device_type,
-        status: node.status === 'down' || node.status === 'offline' ? 'offline' : node.status === 'degraded' || node.status === 'warning' ? 'warning' : 'healthy',
+        model: node.model ?? node.metadata?.['model'] ?? node.device_type,
+        status: ['down', 'offline', 'failed', 'unavailable'].includes(node.status ?? '') ? 'offline' : node.status === 'degraded' ? 'warning' : 'healthy',
         config: (() => {
           const saved = node.metadata?.['configuration'] && typeof node.metadata['configuration'] === 'object' && !Array.isArray(node.metadata['configuration']) ? node.metadata['configuration'] as Record<string, unknown> : {};
           const derivedIp = node.interfaces?.filter((iface) => iface.ip_configuration).map((iface) => `${iface.ip_configuration?.ip_address}${iface.ip_configuration?.prefix_length != null ? `/${iface.ip_configuration.prefix_length}` : ''}`).join(', ');
@@ -344,7 +272,7 @@ export function convertNetworkToReactFlow(network: NetworkDefinition) {
         targetHandle: link.target_interface_id ?? (typeof link.metadata?.['target_handle'] === 'string' ? link.metadata['target_handle'] : null),
       data: {
         cableType: link.cable_type ?? 'straight-through',
-        status: link.status === 'down' || link.status === 'offline' ? 'offline' : link.status === 'degraded' ? 'degraded' : 'active',
+        status: ['down', 'offline', 'failed', 'unavailable'].includes(link.status ?? '') ? 'offline' : link.status === 'degraded' ? 'degraded' : 'active',
         ...(typeof link.bandwidth_mbps === 'number' ? { maxCapacityMbps: link.bandwidth_mbps } : {}),
         ...(typeof link.delay_ms === 'number' ? { baseLatencyMs: link.delay_ms } : {}),
         ...(typeof link.packet_loss_pct === 'number' ? { packetLossPct: link.packet_loss_pct } : {}),

@@ -4,6 +4,10 @@ from app.config import settings
 from app.api.network import router as network_router
 from app.api.scenario import router as scenario_router
 from app.api.failure_simulation import router as failure_simulation_router
+from app.api.analysis import router as analysis_router
+from pydantic import ValidationError
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
 
 app = FastAPI(
     title=settings.project_name,
@@ -25,6 +29,13 @@ app.add_middleware(
 app.include_router(network_router, prefix=settings.api_prefix)
 app.include_router(scenario_router, prefix=settings.api_prefix)
 app.include_router(failure_simulation_router, prefix=settings.api_prefix)
+app.include_router(analysis_router, prefix=settings.api_prefix)
+
+@app.exception_handler(ValidationError)
+@app.exception_handler(RequestValidationError)
+async def invalid_model(_request, _exception):
+    # Avoid reflecting user topology or configuration in runtime validation errors.
+    return JSONResponse(status_code=422, content={"detail": "Invalid topology or scenario values; check finite ranges and references."})
 
 @app.get(f"{settings.api_prefix}/health")
 async def health_check():
@@ -32,3 +43,9 @@ async def health_check():
         "status": "ok",
         "service": settings.project_name
     }
+
+
+@app.get(f"{settings.api_prefix}/configuration/supabase", tags=["configuration"])
+async def supabase_configuration():
+    diagnostic = settings.supabase_diagnostic()
+    return JSONResponse(status_code=200 if diagnostic["configuration_valid"] else 503, content=diagnostic)

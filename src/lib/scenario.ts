@@ -1,4 +1,5 @@
 import { API_URL } from '@/lib/constants';
+import { requestApi } from '@/lib/api-request';
 
 export type ScenarioType =
   | 'link_failure'
@@ -41,21 +42,14 @@ export interface ScenarioRequest {
   name: string;
   description: string;
   baseline: Record<string, unknown>;
+  traffic: { source_node_id: string; target_node_id: string; offered_mbps: number };
   scenario: ScenarioMutation;
   assumptions?: Record<string, unknown>;
 }
 
 export async function runScenario(request: ScenarioRequest): Promise<any> {
-  const response = await fetch(`${API_URL}/api/scenario/run`, {
+  return requestApi('scenario/run', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
-  });
-
-  if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || 'Scenario execution failed');
-  }
-
-  return response.json();
+  }, { baseUrl: API_URL });
 }
