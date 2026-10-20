@@ -13,9 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
-import { Route as AuthenticatedFailureSimulationRouteImport } from './routes/_authenticated/failure-simulation'
 import { Route as AuthenticatedRecommendationsRouteImport } from './routes/_authenticated/recommendations'
-import { Route as AuthenticatedScenariosRouteImport } from './routes/_authenticated/scenarios'
 import { Route as AuthenticatedTopologyRouteImport } from './routes/_authenticated/topology'
 
 const IndexRoute = IndexRouteImport.update({
@@ -37,23 +35,12 @@ const ResetPasswordRoute = ResetPasswordRouteImport.update({
   path: '/reset-password',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AuthenticatedFailureSimulationRoute =
-  AuthenticatedFailureSimulationRouteImport.update({
-    id: '/failure-simulation',
-    path: '/failure-simulation',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
 const AuthenticatedRecommendationsRoute =
   AuthenticatedRecommendationsRouteImport.update({
     id: '/recommendations',
     path: '/recommendations',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
-const AuthenticatedScenariosRoute = AuthenticatedScenariosRouteImport.update({
-  id: '/scenarios',
-  path: '/scenarios',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
 const AuthenticatedTopologyRoute = AuthenticatedTopologyRouteImport.update({
   id: '/topology',
   path: '/topology',
@@ -64,18 +51,14 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/reset-password': typeof ResetPasswordRoute
-  '/failure-simulation': typeof AuthenticatedFailureSimulationRoute
   '/recommendations': typeof AuthenticatedRecommendationsRoute
-  '/scenarios': typeof AuthenticatedScenariosRoute
   '/topology': typeof AuthenticatedTopologyRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/reset-password': typeof ResetPasswordRoute
-  '/failure-simulation': typeof AuthenticatedFailureSimulationRoute
   '/recommendations': typeof AuthenticatedRecommendationsRoute
-  '/scenarios': typeof AuthenticatedScenariosRoute
   '/topology': typeof AuthenticatedTopologyRoute
 }
 export interface FileRoutesById {
@@ -84,39 +67,22 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
   '/reset-password': typeof ResetPasswordRoute
-  '/_authenticated/failure-simulation': typeof AuthenticatedFailureSimulationRoute
   '/_authenticated/recommendations': typeof AuthenticatedRecommendationsRoute
-  '/_authenticated/scenarios': typeof AuthenticatedScenariosRoute
   '/_authenticated/topology': typeof AuthenticatedTopologyRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    | '/'
-    | '/auth'
-    | '/reset-password'
-    | '/failure-simulation'
-    | '/recommendations'
-    | '/scenarios'
-    | '/topology'
+    '/' | '/auth' | '/reset-password' | '/recommendations' | '/topology'
   fileRoutesByTo: FileRoutesByTo
-  to:
-    | '/'
-    | '/auth'
-    | '/reset-password'
-    | '/failure-simulation'
-    | '/recommendations'
-    | '/scenarios'
-    | '/topology'
+  to: '/' | '/auth' | '/reset-password' | '/recommendations' | '/topology'
   id:
     | '__root__'
     | '/'
     | '/_authenticated'
     | '/auth'
     | '/reset-password'
-    | '/_authenticated/failure-simulation'
     | '/_authenticated/recommendations'
-    | '/_authenticated/scenarios'
     | '/_authenticated/topology'
   fileRoutesById: FileRoutesById
 }
@@ -157,25 +123,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ResetPasswordRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_authenticated/failure-simulation': {
-      id: '/_authenticated/failure-simulation'
-      path: '/failure-simulation'
-      fullPath: '/failure-simulation'
-      preLoaderRoute: typeof AuthenticatedFailureSimulationRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
     '/_authenticated/recommendations': {
       id: '/_authenticated/recommendations'
       path: '/recommendations'
       fullPath: '/recommendations'
       preLoaderRoute: typeof AuthenticatedRecommendationsRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/scenarios': {
-      id: '/_authenticated/scenarios'
-      path: '/scenarios'
-      fullPath: '/scenarios'
-      preLoaderRoute: typeof AuthenticatedScenariosRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/topology': {
@@ -189,16 +141,12 @@ declare module '@tanstack/react-router' {
 }
 
 interface AuthenticatedRouteRouteChildren {
-  AuthenticatedFailureSimulationRoute: typeof AuthenticatedFailureSimulationRoute
   AuthenticatedRecommendationsRoute: typeof AuthenticatedRecommendationsRoute
-  AuthenticatedScenariosRoute: typeof AuthenticatedScenariosRoute
   AuthenticatedTopologyRoute: typeof AuthenticatedTopologyRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
-  AuthenticatedFailureSimulationRoute: AuthenticatedFailureSimulationRoute,
   AuthenticatedRecommendationsRoute: AuthenticatedRecommendationsRoute,
-  AuthenticatedScenariosRoute: AuthenticatedScenariosRoute,
   AuthenticatedTopologyRoute: AuthenticatedTopologyRoute,
 }
 

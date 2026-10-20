@@ -14,60 +14,6 @@ export type Database = {
   }
   public: {
     Tables: {
-      simulation_experiments: {
-        Row: {
-          baseline_snapshot: Json
-          created_at: string
-          engine_version: string
-          failure_snapshot: Json
-          id: string
-          metrics: Json
-          modernized_snapshot: Json | null
-          proposal: Json | null
-          scenario_id: string
-          scenario_parameters: Json
-          status: string
-          topology_fingerprint: string
-          traffic_configuration: Json
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          baseline_snapshot: Json
-          created_at?: string
-          engine_version: string
-          failure_snapshot: Json
-          id?: string
-          metrics?: Json
-          modernized_snapshot?: Json | null
-          proposal?: Json | null
-          scenario_id: string
-          scenario_parameters?: Json
-          status?: string
-          topology_fingerprint: string
-          traffic_configuration: Json
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          baseline_snapshot?: Json
-          created_at?: string
-          engine_version?: string
-          failure_snapshot?: Json
-          id?: string
-          metrics?: Json
-          modernized_snapshot?: Json | null
-          proposal?: Json | null
-          scenario_id?: string
-          scenario_parameters?: Json
-          status?: string
-          topology_fingerprint?: string
-          traffic_configuration?: Json
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
       chat_messages: {
         Row: {
           created_at: string

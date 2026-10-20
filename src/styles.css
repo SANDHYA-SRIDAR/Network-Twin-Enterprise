@@ -185,7 +185,3 @@
   background-image: radial-gradient(var(--canvas-dot) 1px, transparent 1px);
   background-size: 22px 22px;
 }
-
-@keyframes simulation-flow {
-  to { stroke-dashoffset: -20; }
-}
