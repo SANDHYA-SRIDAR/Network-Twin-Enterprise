@@ -28,6 +28,14 @@ Last reviewed: 2026-10-19
     5. Candidate bypass restoring sufficient capacity (headroom verified, 0% congestion loss, original saved topology unchanged).
   - All 91 backend unit tests pass in `backend/.venv/Scripts/python.exe`.
   - Frontend production build (`npm run build`) compiles cleanly (client + SSR) with zero errors.
+Last reviewed: 2026-10-20
+
+## Topology Anomaly Detection and Gemini Assistant - 2026-10-20
+
+- **DONE AND VERIFIED (anomaly detection engine):** Implemented multi-tier topology anomaly detection (`backend/app/services/anomaly_detector.py`) combining exact NetworkX structural analysis (bridges, articulation points, disconnected components, isolated nodes, capped reachability sweep), deterministic metric rules (overloaded link, lossy link, high delay, asymmetric pair, peer-relative MAD contextual baseline across matching device pairs), and unsupervised IsolationForest trained on synthetic modeled enterprise topologies with contextual scaling. Merges findings across methods and explicitly labels provenance.
+- **DONE AND VERIFIED (stateless, saved, and explain endpoints):** `POST /api/anomalies/analyze` (stateless, 500 node / 2000 link limits), `GET /api/anomalies/saved` (authenticated, caller's own saved topology), and `POST /api/anomalies/explain` (authenticated, max 500 findings payload).
+- **DONE AND VERIFIED (live Google AI Studio Gemini integration):** Configured with `gemini-2.5-flash` via OpenAI-compatible endpoint. Strips markdown fences, parses JSON, and strictly validates up to 50 structured factual claims against analytical simulation scalars within 1e-6 tolerance. Narrative text is explicitly marked advisory. Invalid or unavailable provider output falls back gracefully to a deterministic evidence explanation without altering topology or simulation metrics.
+- **DONE AND VERIFIED (test suite and builds):** **109 backend unit tests pass** (`.\.venv\Scripts\python.exe -m unittest discover -s tests`), including 23 anomaly detection tests. **10 frontend API tests pass** (`npm run test:api`). TypeScript check (`npx tsc --noEmit`) and Vite production build (`npm run build`) pass with zero errors. All results remain labeled as modeled analytical findings on simulated topology data, not measured live telemetry.
 
 ## Quick runtime verification - 2026-10-18
 
