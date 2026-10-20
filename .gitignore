@@ -33,8 +33,3 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
-__pycache__/
-*.py[cod]
-.pytest_cache/
-.venv/
-backend/ml/data/

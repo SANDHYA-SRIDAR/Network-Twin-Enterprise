@@ -78,10 +78,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "NetTransform AI | Network Simulation and Transformation" },
+      { title: "NexusTwin | Network Digital Twin" },
       { name: "description", content: "Enterprise network topology simulation and change planning." },
-      { name: "author", content: "NetTransform AI" },
-      { property: "og:title", content: "NetTransform AI" },
+      { name: "author", content: "NexusTwin" },
+      { property: "og:title", content: "NexusTwin" },
       { property: "og:description", content: "Enterprise network topology simulation and change planning." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
