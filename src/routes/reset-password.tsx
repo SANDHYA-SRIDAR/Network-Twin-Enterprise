@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/custom-client";
 
 export const Route = createFileRoute("/reset-password")({
-  head: () => ({ meta: [{ title: "Reset password | NexusTwin" }, { name: "description", content: "Set a new NexusTwin account password." }, { property: "og:title", content: "Reset password | NexusTwin" }, { property: "og:description", content: "Set a new NexusTwin account password." }, { property: "og:type", content: "website" }, { name: "twitter:card", content: "summary" }] }),
+  head: () => ({ meta: [{ title: "Reset password | NetTransform AI" }, { name: "description", content: "Set a new NetTransform AI account password." }, { property: "og:title", content: "Reset password | NetTransform AI" }, { property: "og:description", content: "Set a new NetTransform AI account password." }, { property: "og:type", content: "website" }, { name: "twitter:card", content: "summary" }] }),
   component: ResetPassword,
 });
 function ResetPassword() {

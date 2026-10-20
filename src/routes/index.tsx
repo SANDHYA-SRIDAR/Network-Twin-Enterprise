@@ -7,9 +7,9 @@ import { supabase } from "@/integrations/supabase/custom-client";
 // project's social preview (explicit og:image or latest screenshot).
 export const Route = createFileRoute("/")({
   head: () => ({ meta: [
-    { title: "NexusTwin | Enterprise Network Simulator" },
-    { name: "description", content: "Model, synchronize, and optimize enterprise network topologies." },
-    { property: "og:title", content: "NexusTwin | Enterprise Network Simulator" },
+    { title: "NetTransform AI | Enterprise Network Simulator" },
+    { name: "description", content: "Simulate, transform, modernize, and optimize enterprise networks." },
+    { property: "og:title", content: "NetTransform AI | Enterprise Network Simulator" },
     { property: "og:description", content: "Model, synchronize, and optimize enterprise network topologies." },
     { property: "og:type", content: "website" },
     { name: "twitter:card", content: "summary_large_image" },
@@ -25,5 +25,5 @@ function Index() {
       void navigate({ to: data.user ? "/topology" : "/auth", replace: true });
     });
   }, [navigate]);
-  return <div className="grid min-h-screen place-items-center bg-background text-sm text-muted-foreground">Loading NexusTwin…</div>;
+  return <div className="grid min-h-screen place-items-center bg-background text-sm text-muted-foreground">Loading NetTransform AI…</div>;
 }
