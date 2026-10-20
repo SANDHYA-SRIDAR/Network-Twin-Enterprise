@@ -638,6 +638,7 @@ def analyze_topology_anomalies(
         "metric_outliers": sum(1 for f in final_findings if f.tier == "metric_outlier"),
         "configuration_issues": sum(1 for f in final_findings if f.tier == "configuration_issue"),
         "highest_severity": max((f.severity for f in final_findings), default=0.0),
+        "ml_status": ml_status,
     }
 
     return AnomalyAnalysisResponse(
