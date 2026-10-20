@@ -2,6 +2,42 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { paretoPoints, comparisonDemandText } from "../src/lib/optimization-view.ts";
+import { trafficChartRows, trafficParetoPoints } from "../src/lib/traffic-experiment.ts";
+
+test("event charts preserve calculated values and absent candidate data", () => {
+  const before = {
+    series: [
+      { time_seconds: 0.5, throughput_mbps: 2 },
+      { time_seconds: 1, throughput_mbps: 4 },
+    ],
+  };
+  const after = {
+    series: [
+      { time_seconds: 0.5, throughput_mbps: 1 },
+      { time_seconds: 1, throughput_mbps: 0 },
+    ],
+  };
+  assert.deepEqual(trafficChartRows(before, after), [
+    { time: 0.5, original: 2, scenario: 1, proposed: null },
+    { time: 1, original: 4, scenario: 0, proposed: null },
+  ]);
+});
+
+test("event Pareto views retain connectivity without inventing undefined delay", () => {
+  const candidates = [
+    {
+      id: "cut",
+      title: "Cut",
+      feasible: true,
+      cost_units: 0,
+      metrics: { average_latency_ms: null, connectivity_pct: 0 },
+    },
+  ];
+  assert.deepEqual(trafficParetoPoints(candidates, ["cut"], "latency"), []);
+  assert.deepEqual(trafficParetoPoints(candidates, ["cut"], "connectivity"), [
+    { id: "cut", title: "Cut", cost: 0, value: 0 },
+  ]);
+});
 
 test("Pareto projection excludes rejected and unsupported latency rather than plotting zero", () => {
   const item = (id, feasible, latency) => ({

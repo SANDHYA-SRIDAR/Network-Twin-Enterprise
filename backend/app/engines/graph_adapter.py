@@ -50,6 +50,7 @@ def structural_analysis(network: NetworkDefinition, seed: int = 17) -> dict:
         "operational_links": graph.number_of_edges(),
         "connected_components": [sorted(c) for c in sorted(nx.connected_components(graph), key=lambda c: tuple(sorted(c)))],
         "bridge_link_ids": bridges, "degree": dict(sorted(graph.degree())),
+        "critical_node_ids": sorted(nx.articulation_points(projection)),
         "communities": ordered, "membership": membership, "modularity": modularity,
         "community_algorithm": "networkx_louvain", "seed": seed,
         "community_weight_basis": "count of operational parallel connections, not bandwidth or measured traffic",

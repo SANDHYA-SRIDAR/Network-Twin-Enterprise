@@ -2,8 +2,29 @@ import { authenticatedApi } from "@/lib/api";
 import type { NetworkDefinition } from "@/lib/network-schema";
 import type { ScenarioType } from "@/lib/scenario";
 
+export type FlowImpact = {
+  scenario_type: string;
+  target_id: string;
+  is_on_route: boolean;
+  route_survived: boolean;
+  route_changed: boolean;
+  baseline_route_links: string[];
+  failed_route_links: string[];
+  baseline_bottleneck_mbps: number;
+  failed_bottleneck_mbps: number;
+  baseline_congested: boolean;
+  failed_congested: boolean;
+  baseline_congestion_loss_pct: number;
+  failed_congestion_loss_pct: number;
+  status_code: "off_route" | "disconnected" | "rerouted" | "survived" | "non_link_scenario";
+  explanation: string;
+};
+
 export type SimulationMetrics = {
   queueing_status?: "estimated" | "unstable" | "unreachable";
+  congestion_loss_pct?: number;
+  link_medium_loss_pct?: number;
+  flow_impact?: FlowImpact;
   propagation_delay_ms?: number | null;
   serialization_delay_ms?: number | null;
   queueing_delay_ms?: number | null;
@@ -48,6 +69,7 @@ export type SimulationMetrics = {
 };
 
 export type FailureSimulationResult = {
+  flow_impact?: FlowImpact | null;
   decisions?: CandidateDecision[];
   analysis?: NetworkAnalysis | null;
   traffic?: Record<string, unknown>;

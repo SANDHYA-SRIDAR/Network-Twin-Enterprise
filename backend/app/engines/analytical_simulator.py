@@ -161,6 +161,7 @@ def evaluate(network: NetworkDefinition, demand: TrafficDemand, assumptions: set
         "packets_sent": sent, "packets_delivered": received, "packets_dropped": sent - received,
         "packet_loss_pct": round(100 * (1 - delivery_fraction), 6),
         "configured_path_loss_pct": round(100 * (1 - survival), 6) if route is not None else None,
+        "link_medium_loss_pct": round(100 * (1 - survival), 6) if route is not None else None,
         "congestion_loss_pct": round(100 * (1 - achievable / demand.offered_mbps), 6),
         "average_latency_ms": latency, "maximum_latency_ms": None,
         "maximum_latency_status": "unsupported: steady-state mean does not determine a maximum",
@@ -274,8 +275,16 @@ def modernize(baseline: NetworkDefinition, failed: NetworkDefinition, scenario_t
     resolved = False
 
     if scenario_type == "link_failure":
-        failed_link = next(link for link in baseline.links if link.id == parameters["link_id"])
-        if failed_metrics.get("flow_connected"):
+        failed_link = next((link for link in baseline.links if link.id == parameters["link_id"]), None)
+        if not failed_link:
+            raise HTTPException(status_code=422, detail="Selected link is not in baseline topology.")
+        baseline_route = shortest_path(baseline, demand.source_node_id, demand.target_node_id, demand.offered_mbps, demand.packet_size_bytes, assumptions) or []
+        is_on_route = failed_link.id in baseline_route
+        if not is_on_route:
+            message = (f"The selected failed link ({failed_link.id}) was outside the active traffic route. "
+                       "The path continues using existing operational links; this failure does not directly affect the selected traffic flow.")
+            resolved = True
+        elif failed_metrics.get("flow_connected"):
             message = "The selected path was rerouted through existing operational links; no physical topology change is needed."
             resolved = True
         else:
@@ -347,14 +356,95 @@ def run_experiment(network: NetworkDefinition, scenario_type: str, parameters: d
     failed_result = evaluate(failed, effective_traffic, assumptions, "failure")
     from app.services.anomaly_analysis import analyze_state
     analysis = analyze_state(network, failed, baseline_result["metrics"], failed_result["metrics"])
+    failed_link_id = parameters.get("link_id") if scenario_type == "link_failure" else None
+    failed_node_id = parameters.get("node_id") if scenario_type in {"device_failure", "segment_isolation"} else None
+    baseline_route_links = baseline_result["metrics"].get("route_link_ids", [])
+    baseline_route_nodes = baseline_result["metrics"].get("route_node_ids", [])
+    failed_route_links = failed_result["metrics"].get("route_link_ids", [])
+    failed_route_nodes = failed_result["metrics"].get("route_node_ids", [])
+
+    is_on_route = False
+    if scenario_type == "link_failure" and failed_link_id:
+        is_on_route = failed_link_id in baseline_route_links
+    elif scenario_type in {"device_failure", "segment_isolation"} and failed_node_id:
+        is_on_route = failed_node_id in baseline_route_nodes
+
+    baseline_cap = baseline_result["metrics"]["path_capacity_mbps"]
+    failed_cap = failed_result["metrics"]["path_capacity_mbps"]
+    baseline_congested = traffic.offered_mbps > baseline_cap if baseline_cap > 0 else False
+    failed_congested = effective_traffic.offered_mbps > failed_cap if failed_cap > 0 else False
+
+    route_survived = failed_result["metrics"]["flow_connected"]
+    route_changed = baseline_route_links != failed_route_links
+
+    if scenario_type == "link_failure":
+        if not is_on_route:
+            explanation = (
+                f"Selected failed link ({failed_link_id}) is OUTSIDE the active source-to-destination route. "
+                "This failure does not directly affect the selected traffic flow; the route remains operational."
+            )
+            if failed_congested:
+                explanation += (
+                    f" Note: Modeled packet loss of {failed_result['metrics']['packet_loss_pct']:.2f}% is caused by "
+                    f"offered traffic ({effective_traffic.offered_mbps:g} Mbps) exceeding the path bottleneck capacity "
+                    f"({failed_cap:g} Mbps), NOT by the link failure."
+                )
+            status_code = "off_route"
+        else:
+            if not route_survived:
+                explanation = (
+                    f"Selected failed link ({failed_link_id}) is ON the active route, and NO alternative path exists. "
+                    "Traffic is completely disconnected (100% loss due to link failure)."
+                )
+                status_code = "disconnected"
+            elif route_changed:
+                explanation = (
+                    f"Selected failed link ({failed_link_id}) is ON the active route. Traffic was rerouted "
+                    f"to an alternate path ({' → '.join(failed_route_links)})."
+                )
+                if failed_cap < baseline_cap:
+                    explanation += f" The alternate path has lower bottleneck capacity ({failed_cap:g} Mbps vs {baseline_cap:g} Mbps)."
+                if failed_congested:
+                    explanation += (
+                        f" Modeled packet loss of {failed_result['metrics']['packet_loss_pct']:.2f}% is due to "
+                        f"offered traffic exceeding the alternate path's capacity."
+                    )
+                status_code = "rerouted"
+            else:
+                explanation = f"Selected failed link ({failed_link_id}) is on the route and path survived."
+                status_code = "survived"
+    else:
+        status_code = "non_link_scenario"
+        explanation = f"Scenario {scenario_type} evaluated."
+
+    flow_impact = {
+        "scenario_type": scenario_type,
+        "target_id": failed_link_id or failed_node_id or "",
+        "is_on_route": is_on_route,
+        "route_survived": route_survived,
+        "route_changed": route_changed,
+        "baseline_route_links": baseline_route_links,
+        "failed_route_links": failed_route_links,
+        "baseline_bottleneck_mbps": baseline_cap,
+        "failed_bottleneck_mbps": failed_cap,
+        "baseline_congested": baseline_congested,
+        "failed_congested": failed_congested,
+        "baseline_congestion_loss_pct": baseline_result["metrics"]["congestion_loss_pct"],
+        "failed_congestion_loss_pct": failed_result["metrics"]["congestion_loss_pct"],
+        "status_code": status_code,
+        "explanation": explanation,
+    }
     analysis["impact"] = {
         "newly_unreachable_node_ids": sorted(_reachable(network, traffic.source_node_id) - _reachable(failed, effective_traffic.source_node_id)),
         "baseline_offered_mbps": traffic.offered_mbps,
         "scenario_offered_mbps": effective_traffic.offered_mbps,
-        "route_changed": baseline_result["metrics"]["route_link_ids"] != failed_result["metrics"]["route_link_ids"],
-        "affected_baseline_route_links": sorted(set(baseline_result["metrics"]["route_link_ids"]) & set(analysis["graph_changes"]["links"]["changed"])),
+        "route_changed": route_changed,
+        "affected_baseline_route_links": sorted(set(baseline_route_links) & set(analysis["graph_changes"]["links"]["changed"])),
         "unreachable_demands": failed_result["metrics"]["unreachable_demands"],
+        "flow_impact": flow_impact,
     }
+    analysis["flow_impact"] = flow_impact
+    failed_result["metrics"]["flow_impact"] = flow_impact
     experiment_id = str(uuid.uuid4())
     assumptions.update({
         "Routing uses deterministic shortest path with link cost = configured propagation delay + packet serialization delay; queue delay is estimated after route selection.",
@@ -366,6 +456,7 @@ def run_experiment(network: NetworkDefinition, scenario_type: str, parameters: d
         "experiment_id": experiment_id, "engine_version": ENGINE_VERSION, "traffic": effective_traffic.model_dump(), "analysis": analysis,
         "baseline_topology": network.model_dump(mode="json"), "failed_topology": failed.model_dump(mode="json"),
         "baseline_metrics": baseline_result["metrics"], "failed_metrics": failed_result["metrics"],
+        "flow_impact": flow_impact,
         "failure_steps": _failure_steps(network, failed, failed_result["steps"]),
         "assumptions": sorted(assumptions),
         "status": "completed", "provenance": "simulated",

@@ -146,6 +146,9 @@ def describe_selection(selected, evaluated, failed_metrics, demand, criteria, as
     trade_offs = list(selected["trade_offs"])
     if selected["id"] == "retain":
         trade_offs.append("Avoids configuration changes and their cost, but retains the outage and depends on surviving paths; service targets being met does not imply a repaired link or extra performance.")
+    failed_impact = failed_metrics.get("flow_impact") or {}
+    if failed_impact.get("is_on_route") is False and selected["id"] == "bypass":
+        trade_offs.append("The scenario failed link was outside the traffic path. The proposed bypass addresses traffic congestion (offered load exceeding baseline path bottleneck) rather than recovering a broken link.")
     if not outcome["performance_improved"]:
         trade_offs.append(outcome["service_outcome"])
     minimum_delivery = criteria.optimizer.minimum_delivery_ratio if criteria.optimizer else 0.95
@@ -200,6 +203,18 @@ def evaluate_candidate(strategy_id, title, candidate, failed, demand, failed_met
         "cost": 1 / (1 + units),
     }
     score = sum(criteria.weights[k] * components[k] for k in components) / total_weight
+    trade_offs = [
+        "Change units are relative design assumptions, not monetary quotes.",
+        "Ports, physical installation, device compatibility and routing policy need engineering validation.",
+    ] if changes else ["Retains current outages and capacity limitations."]
+    if strategy_id == "bypass":
+        path_cap = metrics.get("path_capacity_mbps", 0.0)
+        if path_cap >= demand.offered_mbps:
+            trade_offs.append(f"Dedicated service path capacity ({path_cap:g} Mbps) verified sufficient for offered traffic ({demand.offered_mbps:g} Mbps); 0% congestion loss.")
+        else:
+            loss_fraction = max(0.0, 1.0 - (path_cap / demand.offered_mbps))
+            metrics["congestion_loss_pct"] = round(100 * loss_fraction, 6)
+            trade_offs.append(f"Dedicated service path capacity ({path_cap:g} Mbps) is less than offered traffic ({demand.offered_mbps:g} Mbps); congestion loss occurs.")
     return {
         "id": strategy_id, "title": title, "topology": candidate.model_dump(mode="json"),
         "metrics": metrics, "steps": result["steps"], "score": round(score, 6),
@@ -211,6 +226,5 @@ def evaluate_candidate(strategy_id, title, candidate, failed, demand, failed_met
         "risk_analysis": risk,
         "screening": {"eligible": feasible, "risk_flag_only": risk["flagged"],
                       "reason": "Risk never excludes a candidate; only explicit budget/permission constraints do."},
-        "trade_offs": ["Change units are relative design assumptions, not monetary quotes.",
-                       "Ports, physical installation, device compatibility and routing policy need engineering validation."] if changes else ["Retains current outages and capacity limitations."],
+        "trade_offs": trade_offs,
     }

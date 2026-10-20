@@ -14,6 +14,53 @@ OBJECTIVES = ["undelivered_fraction", "unreachable_fraction", "latency_target_ra
 _SEARCH_LOCK = Lock()  # pymoo 0.6.1.6 seeds global RNG state: serialize seeded searches.
 
 
+def optimize_traffic_catalog(candidates, seed=17):
+    """NSGA-II over the bounded, event-evaluated action catalog, not novel graphs.
+
+    All catalog entries seed the population. Report exact non-dominance within
+    this small evaluated catalog; never claim global architecture optimality.
+    """
+    base = {"algorithm": "pymoo_nsga2", "encoding": "integer index into evaluated action catalog",
+            "objectives": ["mean_latency_ratio", "packet_loss_fraction", "change_units", "peak_link_utilization", "unreachable_flow_fraction", "critical_flow_delivery_deficit"],
+            "seed": seed, "generations": 8, "population_size": max(8, len(candidates)),
+            "crossover_probability": .9, "mutation_probability": .5,
+            "pareto_candidate_ids": [], "scope": "Finite generated catalog only; not global optimality or uptime reliability."}
+    try:
+        import numpy as np
+        from pymoo.algorithms.moo.nsga2 import NSGA2
+        from pymoo.core.problem import ElementwiseProblem
+        from pymoo.operators.crossover.sbx import SBX
+        from pymoo.operators.mutation.pm import PM
+        from pymoo.operators.repair.rounding import RoundingRepair
+        from pymoo.optimize import minimize
+        class CatalogProblem(ElementwiseProblem):
+            def __init__(self):
+                super().__init__(n_var=1, n_obj=6, n_ieq_constr=1, xl=0, xu=len(candidates)-1)
+            def _evaluate(self, x, out, *args, **kwargs):
+                candidate = candidates[int(round(float(x[0])))]
+                out["F"] = candidate["objectives"]
+                out["G"] = [0 if candidate["feasible"] and candidate["targets_met"] else 1]
+        if not _SEARCH_LOCK.acquire(timeout=1):
+            return {**base, "status": "fallback", "reason": "Optimizer busy; deterministic recommendation retained."}
+        try:
+            result = minimize(CatalogProblem(), NSGA2(pop_size=base["population_size"],
+                     sampling=np.array([[i % len(candidates)] for i in range(base["population_size"])]),
+                     crossover=SBX(prob=.9, eta=15, repair=RoundingRepair()),
+                     mutation=PM(prob=.5, eta=20, repair=RoundingRepair()), eliminate_duplicates=False),
+                     ("n_gen", 8), seed=seed, verbose=False)
+        finally:
+            _SEARCH_LOCK.release()
+        feasible = [c for c in candidates if c["feasible"] and c["targets_met"]]
+        returned = set(int(round(float(row[0]))) for row in np.atleast_2d(result.X)) if result.X is not None else set()
+        front = [c["id"] for index, c in enumerate(candidates) if index in returned and c["feasible"] and c["targets_met"]
+                 and not any(dominates(other["objectives"], c["objectives"]) for other in feasible)]
+        return {**base, "status": "completed" if front else "no_feasible_candidates", "pareto_candidate_ids": front,
+                "reason": None if front else "No optimizer result met every flow's delivery/latency targets and change constraints.",
+                "evaluated_configurations": len(candidates)}
+    except (ImportError, ValueError, RuntimeError, ArithmeticError):
+        return {**base, "status": "fallback", "reason": "Optimizer unavailable; deterministic recommendation retained."}
+
+
 def dominates(left, right):
     return all(a <= b for a, b in zip(left, right)) and any(a < b for a, b in zip(left, right))
 

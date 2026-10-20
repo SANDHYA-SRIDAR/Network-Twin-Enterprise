@@ -59,6 +59,7 @@ class ExperimentModernizeRequest(BaseModel):
 class SimulationExperimentResponse(BaseModel):
     decisions: list[Dict[str, Any]] = Field(default_factory=list)
     analysis: Optional[Dict[str, Any]] = None
+    flow_impact: Optional[Dict[str, Any]] = None
     traffic: Dict[str, Any] = Field(default_factory=dict)
     scenario_parameters: Dict[str, Any] = Field(default_factory=dict)
     experiment_id: str

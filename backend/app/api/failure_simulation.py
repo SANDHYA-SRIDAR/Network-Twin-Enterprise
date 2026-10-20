@@ -118,6 +118,7 @@ def _experiment_result(row: dict[str, Any]) -> dict[str, Any]:
         "topology_fingerprint": row["topology_fingerprint"],
         "baseline_topology": row["baseline_snapshot"], "failed_topology": row["failure_snapshot"],
         "baseline_metrics": metrics.get("baseline", {}), "failed_metrics": metrics.get("failure", {}),
+        "flow_impact": row.get("flow_impact") or (row.get("metrics") or {}).get("failure", {}).get("flow_impact") or (row.get("analysis") or {}).get("impact", {}).get("flow_impact"),
         "failure_steps": metrics.get("failure_steps", []), "assumptions": metrics.get("assumptions", []),
         "modernization": proposal, "modernized_topology": row.get("modernized_snapshot"),
         "modernized_metrics": metrics.get("modernized"), "modernization_steps": metrics.get("modernization_steps", []),

@@ -1,6 +1,33 @@
 # Project Status
 
-Last reviewed: 2026-10-18
+Last reviewed: 2026-10-19
+
+## Link Failure Analytical Simulation Refinements - 2026-10-19
+
+- **DONE AND VERIFIED (Incident Root Cause Fixed):** Fixed Link Failure simulation behavior where off-route link failures (e.g. Switch ↔ Load Balancer when traffic is PC2 → Server-PT) were not distinguished from on-route failures, and where traffic exceeding bottleneck capacity (1500 Mbps offered vs 1000 Mbps capacity) produced unstable queueing (`ρ ≥ 1`) that previously displayed as "Unreachable".
+- **DONE AND VERIFIED (Engine & Analysis Separation):**
+  - Baseline metrics are strictly calculated from the recorded original topology with no injected failure.
+  - Active traffic route is identified (`is_on_route`); if the failed link is outside the tested route, the engine and UI explicitly state that the failure does not directly affect the selected traffic flow.
+  - Congestion loss (`congestion_loss_pct`) is decoupled from physical link/medium loss (`link_medium_loss_pct`). The engine explicitly explains that modeled packet loss when `offered > bottleneck` is caused by traffic overload, NOT by an off-route link failure.
+  - When traffic exceeds bottleneck capacity, queue status is labeled `unstable (ρ ≥ 1)` and latency is marked undefined due to queue instability rather than falsely claiming the destination is topologically unreachable.
+  - Baseline, failure, and recovery calculations use identical offered traffic, packet size, and duration.
+- **DONE AND VERIFIED (Candidate Bypass Verification & Visualization):**
+  - Dedicated service path capacity is verified against offered traffic before claiming 0% modeled congestion loss.
+  - The proposed bypass (`candidate:dedicated-service-path`) is rendered as a distinct purple highlighted connection in the candidate topology with legend indicator, leaving the original saved topology unchanged.
+- **DONE AND VERIFIED (Frontend UI & Three-Way Comparison):**
+  - Added on-route indicators (`★ [ON ROUTE]`) in connection selector dropdown with quick switch button to test failures on the active route.
+  - Added flow impact alert banners explaining whether failure is on-route or off-route, and separating topological reachability from congestion delivery.
+  - Fixed latency display in metric cards and three-way comparison table (`Queue unstable (ρ ≥ 1)` vs `Unreachable (no route)`).
+  - Three-way comparison displays flow path reachability, total loss, congestion loss, link medium loss, average latency, throughput, bottleneck capacity, and queueing status.
+- **DONE AND VERIFIED (Automated Tests & Build):**
+  - Created `backend/tests/test_link_failure_refinements.py` covering all 5 required scenarios:
+    1. Failed link outside traffic route (off_route, flow preserved).
+    2. Failed link on traffic route with no alternative path (disconnected, 100% loss).
+    3. Failed link on traffic route with alternative path (rerouted, alternate links used).
+    4. Traffic exceeding bottleneck capacity (unstable queue, congestion loss separated from link failure, flow connected).
+    5. Candidate bypass restoring sufficient capacity (headroom verified, 0% congestion loss, original saved topology unchanged).
+  - All 91 backend unit tests pass in `backend/.venv/Scripts/python.exe`.
+  - Frontend production build (`npm run build`) compiles cleanly (client + SSR) with zero errors.
 
 ## Quick runtime verification - 2026-10-18
 
@@ -142,3 +169,33 @@ Open http://localhost:8080. Experiments save automatically on successful simulat
 - Queueing uses a documented approximation, not a packet-level queue simulator. Detailed time-series telemetry is not persisted separately.
 - Modernization candidates are limited to transformations supported by the current graph model. They are proposals, not deployed changes.
 - No claim of measured performance improvement or machine-learning prediction is made.
+
+
+## 2026-10-19 - Simplified failure simulation presentation
+
+- IMPLEMENTED: Existing page reorganized into five steps: select failure, run, generate solution, inspect proposal, compare. Four primary metrics show throughput, packet loss, average latency and tested-flow connectivity. Failure metrics remain bound to the failure snapshot after generating a candidate.
+- IMPLEMENTED: Collapsed Advanced Details retains existing optimizer controls, Pareto analysis, alternative selection/decision tools, AI explanations, history/export, inventory, assumptions, detailed metrics and route playback. Backend impact, recommendation and outcome text remain authoritative; no-change candidates are explicitly labeled.
+- IMPLEMENTED: Existing React Flow component supports compact route labels and highlights candidate node/link changes against the failed graph, including repairs/capacity changes. Failed links stay red. Canonical topology and all existing backend changes were preserved.
+- DONE AND VERIFIED: 10 existing frontend tests passed; TypeScript check passed; focused ESLint completed with zero errors and one pre-existing auto-run effect dependency warning. Production build passed outside the Windows sandbox (initial sandbox attempt failed with spawn EPERM). Diff whitespace check passed.
+- IMPLEMENTED BUT NOT VERIFIED: Signed-in browser interaction and visual review were not exercised in this pass. No backend calculation changes or database operations were made for this presentation task.
+- Files changed for this task: src/routes/_authenticated/failure-simulation.tsx, src/components/network/simulation-topology.tsx, project-status.md. Other pre-existing working-tree changes remain untouched.
+
+
+## 2026-10-19 - Branch WAN transformation demonstration
+
+- IMPLEMENTED: Expandable Branch WAN transformation demonstration on the existing failure page; POST /api/analysis/wan-demo reuses run_experiment, evaluate_candidate, describe_selection and the same analytical simulator. No second simulator or canonical topology store.
+- Selection: least change units among candidates meeting 95% delivery and 50 ms mean latency, plus primary-WAN-outage survival when explicitly required. Retain, repair and dual-WAN SD-WAN architecture are independently evaluated. No qualifying candidate is reported honestly.
+- Architecture: adds a router with sd_wan_edge role, a second provider and two distinct uplinks. Primary-domain links remain disabled during the transformation evaluation. Provider independence, secondary 200 Mbps uplink and delay/loss values are design assumptions. Static shortest paths model failover; no SD-WAN protocol, convergence time, real packets or physical diversity validation.
+- Saved topology eligibility: exactly one branch_wan node, one wan_service node, and one incident connection with metadata.wan=true and a declared failure_domain. Otherwise a clearly labeled reusable synthetic branch example is used. All operations are isolated copies and stateless; no saved topology or experiment is overwritten.
+- DONE AND VERIFIED: 5 new focused tests; full backend suite 96 tests passed outside sandbox (initial run had a Windows temporary-directory permission error). 10 frontend tests, type-check, new component lint and production build passed. Fresh Uvicorn on 8014 returned HTTP 200 for continuity-required SD-WAN (100/0/100 Mbps), repair-sufficient (100/0/100 Mbps), and no-feasible-option at 500 Mbps. Tests verify architectural difference, original immutability, exact metric recalculation, primary-to-secondary route change and disconnection with both uplinks down.
+- IMPLEMENTED BUT NOT VERIFIED: Signed-in browser interaction. Existing 8013 process returned 404 for the newly added route, as did its 8080 proxy; restart backend to load current code. Temporary verification server is stopped after checks.
+- Launch from backend: .\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8013 --reload. Frontend from root: npm run dev -- --host localhost --port 8080. Open Failure Simulation and expand Branch WAN transformation demonstration.
+- Task files: backend/app/services/wan_demo.py, backend/app/api/analysis.py, backend/tests/test_wan_demo.py, src/components/network/wan-transformation-demo.tsx, src/routes/_authenticated/failure-simulation.tsx, project-status.md. Existing unrelated working changes preserved.
+
+## 2026-10-20 - Integration snapshot and traffic simulation verification
+
+- Current integration snapshot includes the simplified failure workflow, WAN architecture demonstration, bounded synthetic packet-event simulation, shared-traffic capacity candidates, service-chain what-if actions, rule-based insights, and the event-catalog NSGA-II UI. See docs/traffic-simulation-upgrade.md for model boundaries and demonstration steps.
+- Backend regression suite: 108 tests passed in the pre-push verification. Provider configuration was absent in the implementation pass; no trained predictive ML model or live AI success is claimed. Signed-in browser interaction remains unverified.
+- User requested pushing current nettransform-integration and switching to backend. Remote and local inspection found no backend branch; a local backend branch will be created from the saved integration commit. No published history is rewritten.
+- Credential scan of 192 tracked/nonignored files found no configured credential values or private-key/token patterns. Root and backend .env files remain ignored and excluded.
+- DONE AND VERIFIED before push: TypeScript check, all 12 frontend tests, production build, and diff whitespace check passed.

@@ -68,3 +68,8 @@ The frontend reads the current session for every protected request and refreshes
 ### NSGA-II and operator decisions
 
 The failure-simulation workflow supports opt-in pymoo NSGA-II, evaluated Pareto alternatives, and owner-scoped experiment plan selection/acceptance/rejection. See [the implementation and verification report](docs/optimization-decision-milestones.md) for objective/constraint definitions, provider output requirements and remaining live verification gates. Candidate plans do not deploy or overwrite the saved topology.
+# Interactive traffic simulation
+
+The existing Failure Simulation page now includes **Interactive application traffic, risk and recovery**. Choose a scenario or try the labeled home, office, multi-branch and WAN examples. Run bounded synthetic packet events, inspect queue loss and rerouted applications, and explore NSGA-II alternatives. This does not send real packets or overwrite your saved network.
+
+See [the traffic simulation guide](docs/traffic-simulation-upgrade.md) for launch commands, demonstration cases, formulas, supported what-if actions, AI configuration and model limits. The original analytical workflow and saved experiments remain available.
