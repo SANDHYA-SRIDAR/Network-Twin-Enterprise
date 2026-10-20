@@ -321,8 +321,12 @@ class AnomalyApiIntegrationTests(unittest.TestCase):
         mock_repo.load_topology.assert_called_once_with("valid-test-token", "user-1234")
 
     @patch("app.api.anomalies.repository")
-    def test_explain_unconfigured_fallback_is_deterministic(self, mock_repo):
+    @patch("app.services.assistant.settings")
+    def test_explain_unconfigured_fallback_is_deterministic(self, mock_settings, mock_repo):
         """Explain endpoint without provider configured returns deterministic mode safely."""
+        mock_settings.assistant_url = None
+        mock_settings.assistant_model = None
+        mock_settings.assistant_api_key = None
         mock_repo.user_id = AsyncMock(return_value="user-1234")
         headers = {"Authorization": "Bearer valid-test-token"}
         payload = {
