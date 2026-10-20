@@ -169,8 +169,15 @@ def validate_anomaly_explanation(content: str, evidence: dict[str, Any]) -> Prov
 
 async def explain_anomalies(findings: list[dict[str, Any]], summary: dict[str, Any], question: str) -> dict[str, Any]:
     """Explain detected topology anomalies with strict grounded validation."""
+    rule_count = sum(1 for f in findings if "rule" in (f.get("methods") or []))
+    ml_count = sum(1 for f in findings if "isolation_forest" in (f.get("methods") or []))
+
+    evidence_summary = dict(summary)
+    evidence_summary.setdefault("rule_findings", rule_count)
+    evidence_summary.setdefault("ml_findings", ml_count)
+
     evidence = {
-        "summary": summary,
+        "summary": evidence_summary,
         "findings": [
             {
                 "id": f.get("id"),
@@ -190,9 +197,6 @@ async def explain_anomalies(findings: list[dict[str, Any]], summary: dict[str, A
     structural = summary.get("structural_weak_points", 0)
     config = summary.get("configuration_issues", 0)
     ml_status = str(summary.get("ml_status", ""))
-
-    rule_count = sum(1 for f in findings if "rule" in (f.get("methods") or []))
-    ml_count = sum(1 for f in findings if "isolation_forest" in (f.get("methods") or []))
 
     method_parts = [f"{rule_count} rule-based findings"]
     if ml_count > 0:
