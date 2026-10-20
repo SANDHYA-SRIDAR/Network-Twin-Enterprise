@@ -2,6 +2,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { Activity, AlertTriangle, Check, Pause, Play, RotateCcw, ShieldAlert, Sparkles } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AppShell } from '@/components/network/app-shell';
+import { AnomalyPanel } from '@/components/network/anomaly-panel';
 import { ExperimentTools } from '@/components/network/experiment-tools';
 import { SimulationTopology } from '@/components/network/simulation-topology';
 import { Badge } from '@/components/ui/badge';
@@ -238,6 +239,7 @@ function FailureSimulationPage() {
         <div className="mt-5 space-y-2 text-sm"><h3 className="font-medium">Model assumptions and provenance</h3>{result.assumptions.map(assumption => <p key={assumption} className="rounded-md bg-muted/30 p-2 text-muted-foreground">{assumption}</p>)}</div>
       </CardContent></Card>}
       {result && <div className="flex items-start gap-2 rounded-md border p-3 text-xs text-muted-foreground"><AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-500" /><p>Results are deterministic analytical simulations, not measured network telemetry. Supabase experiment record {result.experiment_id} is stored with topology snapshots and engine version. Candidate changes have not been deployed.</p>{result.modernization?.resolved && <Check className="mt-0.5 size-4 text-green-600" />}</div>}
+      <AnomalyPanel topology={saved?.topology} />
       {saved && result === null && saved.topology.nodes.length > 0 && <p className="text-xs text-muted-foreground">Saved topology loaded with {saved.topology.nodes.length} devices and {saved.topology.links?.length ?? 0} connections.</p>}
     </div>
   </main></AppShell>;
