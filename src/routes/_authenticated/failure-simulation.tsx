@@ -11,6 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/custom-client";
+import { AnomalyPanel } from "@/components/network/anomaly-panel";
 import {
   loadSavedSimulationTopology,
   modernizeSimulation,
@@ -1237,6 +1238,7 @@ function FailureSimulationPage() {
               )}
             </div>
           </details>
+          <AnomalyPanel topology={saved?.topology} />
           <p className="text-xs text-muted-foreground">
             Analytical simulation, not live network telemetry. No packets are transmitted or network
             changes deployed.

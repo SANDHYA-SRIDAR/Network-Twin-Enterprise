@@ -5,6 +5,7 @@ from app.api.network import router as network_router
 from app.api.scenario import router as scenario_router
 from app.api.failure_simulation import router as failure_simulation_router
 from app.api.analysis import router as analysis_router
+from app.api.anomalies import router as anomalies_router
 from pydantic import ValidationError
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
@@ -30,6 +31,7 @@ app.include_router(network_router, prefix=settings.api_prefix)
 app.include_router(scenario_router, prefix=settings.api_prefix)
 app.include_router(failure_simulation_router, prefix=settings.api_prefix)
 app.include_router(analysis_router, prefix=settings.api_prefix)
+app.include_router(anomalies_router, prefix=settings.api_prefix)
 
 @app.exception_handler(ValidationError)
 @app.exception_handler(RequestValidationError)
