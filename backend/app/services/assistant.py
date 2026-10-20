@@ -113,9 +113,24 @@ class ProviderAnomalyExplanation(StrictModel):
     claims: list[AnomalyEvidenceClaim] = Field(min_length=1, max_length=50)
 
 
+def _strip_markdown_code_fences(content: str) -> str:
+    """Strip surrounding markdown code fences (``` or ```json) from LLM output."""
+    s = content.strip()
+    if s.startswith("```"):
+        first_newline = s.find("\n")
+        if first_newline != -1:
+            s = s[first_newline + 1:]
+        else:
+            s = s.lstrip("`")
+    if s.endswith("```"):
+        s = s[:-3]
+    return s.strip()
+
+
 def validate_anomaly_explanation(content: str, evidence: dict[str, Any]) -> ProviderAnomalyExplanation:
     """Verify that provider claims strictly match scalar evidence in findings or summary."""
-    parsed = ProviderAnomalyExplanation.model_validate_json(content)
+    clean_content = _strip_markdown_code_fences(content)
+    parsed = ProviderAnomalyExplanation.model_validate_json(clean_content)
     finding_map = {f.get("id"): f for f in evidence.get("findings", []) if isinstance(f, dict)}
     summary = evidence.get("summary", {})
 
@@ -171,17 +186,40 @@ async def explain_anomalies(findings: list[dict[str, Any]], summary: dict[str, A
             for f in findings
         ],
     }
-    total = summary.get("total_findings", 0)
+    total = summary.get("total_findings", len(findings))
     structural = summary.get("structural_weak_points", 0)
-    outliers = summary.get("metric_outliers", 0)
     config = summary.get("configuration_issues", 0)
-    fallback = (
-        f"Modeled topology anomaly analysis: Identified {total} total findings "
-        f"({structural} structural weak points, {outlier_count} ML metric outliers, and {config} configuration issues). "
-        f"Structural weak points (bridges and articulation points) indicate single points of failure. "
-        f"ML outliers diverge from the synthetic enterprise baseline distribution. "
-        "These are modeled analytical findings on simulated topology data, not measured physical telemetry."
-    ) if (outlier_count := outliers) is not None else ""
+    ml_status = str(summary.get("ml_status", ""))
+
+    rule_count = sum(1 for f in findings if "rule" in (f.get("methods") or []))
+    ml_count = sum(1 for f in findings if "isolation_forest" in (f.get("methods") or []))
+
+    method_parts = [f"{rule_count} rule-based findings"]
+    if ml_count > 0:
+        method_parts.append(f"{ml_count} ML metric outliers")
+    method_str = ", ".join(method_parts)
+
+    segments = [
+        f"Modeled topology anomaly analysis: Identified {total} total findings ({method_str}, {structural} structural weak points, and {config} configuration issues)."
+    ]
+    if structural > 0:
+        segments.append(
+            "Structural weak points (bridges and articulation points) indicate single points of failure."
+        )
+    if ml_count > 0:
+        segments.append(
+            "ML outliers diverge from the synthetic enterprise baseline distribution."
+        )
+    elif "skipped" in ml_status:
+        if ml_status == "skipped_too_small":
+            segments.append("ML anomaly scoring was skipped because the topology has fewer than 3 operational nodes.")
+        elif ml_status == "skipped_insufficient_peer_context":
+            segments.append("ML anomaly scoring was skipped due to insufficient peer context for comparative modeling.")
+        else:
+            segments.append(f"ML anomaly scoring was skipped ({ml_status}).")
+
+    segments.append("These are modeled analytical findings on simulated topology data, not measured physical telemetry.")
+    fallback = " ".join(segments)
 
     response: dict[str, Any] = {
         "mode": "deterministic",
@@ -212,6 +250,8 @@ async def explain_anomalies(findings: list[dict[str, Any]], summary: dict[str, A
                                 "Findings are modeled analytical results, not captured telemetry. "
                                 "Return ONLY a JSON object with explanation (plain prose string) and claims (1-50 objects). "
                                 "Each claim has metric (a supplied field), value (exact supplied scalar), and optional id (matching a finding id). "
+                                "Allowed summary metrics (id omitted): total_findings, rule_findings, ml_findings, structural_weak_points, metric_outliers, configuration_issues. "
+                                "Allowed finding metrics (with id matching finding id): severity, score, or numeric fields in evidence (delay_ms, packet_loss_pct, bandwidth_mbps, offered_load_ratio, utilization_pct, anomaly_score). "
                                 "Include the principal factual claims you explain."
                             ),
                         },
@@ -231,8 +271,8 @@ async def explain_anomalies(findings: list[dict[str, Any]], summary: dict[str, A
                 claims=[c.model_dump() for c in parsed.claims],
                 validation="Structured claims matched supplied anomaly evidence; narrative is advisory",
             )
-    except ValueError:
-        response["provider_status"] = "invalid_output_or_evidence; deterministic explanation retained"
+    except ValueError as exc:
+        response["provider_status"] = f"invalid_output_or_evidence: {exc}; deterministic explanation retained"
     except (httpx.HTTPError, KeyError, IndexError, TypeError):
         response["provider_status"] = "unavailable; deterministic explanation retained"
     return response

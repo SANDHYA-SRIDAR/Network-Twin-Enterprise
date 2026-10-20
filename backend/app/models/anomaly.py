@@ -42,7 +42,7 @@ class AnomalyAnalysisResponse(BaseModel):
 
 
 class AnomalyExplainRequest(BaseModel):
-    findings: list[dict[str, Any]] = Field(default_factory=list)
+    findings: list[dict[str, Any]] = Field(default_factory=list, max_length=500)
     summary: dict[str, Any] = Field(default_factory=dict)
     question: str = Field(
         default="Explain the detected topology anomalies and prioritize remediation.",

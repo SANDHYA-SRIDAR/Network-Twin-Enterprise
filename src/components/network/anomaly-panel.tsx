@@ -454,7 +454,7 @@ export function AnomalyPanel({ topology, traffic }: AnomalyPanelProps) {
                   {explanation.claims.length > 0 && (
                     <div className="mt-2 space-y-1">
                       <p className="font-medium text-foreground">
-                        Verified Evidence Claims:
+                        Structured claims verified against evidence (narrative is advisory):
                       </p>
                       <ul className="list-disc pl-4 space-y-0.5 text-muted-foreground">
                         {explanation.claims.map((claim, idx) => (
